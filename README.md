@@ -8,7 +8,7 @@
   <a href="https://github.com/StarLightInfinite/PhoneMic/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License"/></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.13-blue.svg" alt="Python"/></a>
   <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-green.svg" alt="Platform"/>
-  <img src="https://img.shields.io/badge/version-0.6.2-orange.svg" alt="Version"/>
+  <img src="https://img.shields.io/badge/version-1.0.0-orange.svg" alt="Version"/>
   <img src="https://img.shields.io/badge/encryption-E2EE-brightgreen.svg" alt="Encryption"/>
 </p>
 
@@ -90,6 +90,8 @@ flowchart LR
 ### 方式一：使用预编译安装包（推荐）
 
 前往 [GitHub Releases](https://github.com/StarLightInfinite/PhoneMic/releases) 下载安装包，提供内嵌版本（`PhoneMic_Setup_bundled_...exe`，自带 cloudflared，开箱即用）。
+
+> **当前状态**：本仓库独立版本线首个 Release（v1.0.0）先以源码形式发布，安装包正在构建中，Releases 页面暂未提供下载文件。在此期间请使用下方「从源码运行」。
 
 ### 方式二：从源码运行
 
