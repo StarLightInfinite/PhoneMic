@@ -397,6 +397,21 @@ s→c  {"type":"sealed", "data":<bin SealedBox(phone_public): {"pin":"3847","non
 
 > v1 **不下发面板按钮列表**，按钮集内置在 `mobile.html`。将来若要 PC 可配置，再加独立的 `[{label, keys}]` 结构，不复用 `VoiceCommand`。
 
+#### config 上行（手机 → PC）
+
+`config` 是**双向**的：手机端也能改配置，PC 的 `settings.json` 是唯一真相源。
+
+```
+手机 → PC   {"type":"config", "key":"mobile_send_mode", "value":"manual"}
+PC → 手机   {"type":"config", "mobile_send_mode":"manual"}     ← 回声（扁平单键）
+```
+
+- **键白名单**：手机只能写 `settings_manager.MOBILE_UPLINK_KEYS` 里的键（当前为 `mobile_max_records`、`mobile_send_mode`）。白名单外的键只记日志、**不回帧**（旧版手机页面不该因多问一句被打断）。
+- **服务端规范化**：值在落盘前必须过 `normalize_uplink_config`（只认真布尔、范围内的整数、`auto`/`manual` 枚举）；脏值绝不进入 `settings.json`。
+- **恰好回一帧契约**：无论落盘成功还是被拒，服务端**恰好回一帧该键的真实值**，手机端据此把乐观更新自愈成 PC 的真实值。实现上分两支：值合法且有变化 → `sm.set()` 经 `setting_changed` 热推唯一一帧回声；值非法或与磁盘相同 → 主动补一帧当前真实值。
+- **回声形状**：扁平单键 `{"type":"config", <key>: <value>}`，与首帧、`push_config` 一致（手机端按 `data.<key> !== undefined` 逐键解析），**不是** `{key, value}` 两字段。这一点与上面"迁移目标"的 `key`/`value` 写法不同——现有实现统一走扁平形式。
+- **线程约束**：服务端 `setting_changed` 订阅必须用 `Qt.ConnectionType.DirectConnection`。默认 `AutoConnection` 会把回声回调排队到 GUI 线程，GUI 忙（或测试里无 Qt 事件循环）时回声发不出去，手机端会卡在错误的乐观状态。
+
 ### reconnect
 
 ```

@@ -38,6 +38,9 @@ class SettingsDialog(QDialog):
         self._setup_ui()
         self._load_settings()
         self.accepted.connect(self._save_settings)
+        # 手机端改了这两项配置 → 本对话框实时跟上，避免「对话框开着时手机改了，
+        # 回来点确定又把旧值写回去覆盖掉」的竞态（见 _sync_mobile_widgets）。
+        self.sm.setting_changed.connect(self._sync_mobile_widgets)
 
     def _setup_ui(self):
         main_layout = QVBoxLayout(self)
@@ -222,6 +225,17 @@ class SettingsDialog(QDialog):
 
         lang = self.sm.get("language", "zh_CN")
         self.set_combo_index(self.lang_combo, lang)
+
+    def _sync_mobile_widgets(self, key: str, value) -> None:
+        """手机端改了这两项配置时，让本对话框里的控件跟上。
+
+        不这样做会有真实的覆盖风险：对话框开着 → 手机改了发送方式 → 用户回来点
+        「确定」，`_save_settings` 会把对话框里的旧值整体写回，覆盖手机刚改的。
+        """
+        if key == "mobile_max_records" and isinstance(value, int):
+            self.max_records_spin.setValue(value)
+        elif key == "mobile_send_mode":
+            self.set_combo_index(self.send_mode_combo, value or "")
 
     def _save_settings(self):
         self.sm.set("hud_timeout_sec", self.timeout_spin.value())

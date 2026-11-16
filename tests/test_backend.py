@@ -1191,3 +1191,116 @@ class TestTestPageRoute:
         monkeypatch.setattr(api_mod, "is_debug_mode", lambda: True)
         monkeypatch.setattr(api_mod, "get_res_path", lambda _name: str(tmp_path / "nope.html"))
         assert api_mod._serve_test().status_code == 404
+
+
+# ---------- 手机端上行 config（wire-protocol.md §7）----------
+# 手机端改配置 → PC 的 settings.json 落盘为唯一真相源。
+# 后端职责：白名单 + 规范化 + 「恰好回一帧真实值」（手机端据此自愈）。
+
+
+@pytest.fixture
+def isolated_settings(tmp_path):
+    """把 settings.json 指到临时目录，并把两个相关键落到已知值。
+
+    两者都必要：避免改写开发者本机配置；也避免用例结论受本机真实设置影响
+    （这些用例断言「值变化能否触发回声」，起点若是目标值就等不到那一帧）。
+    """
+    from phonemic.utils.settings_manager import SettingsManager
+
+    sm = SettingsManager.instance()
+    snapshot = dict(sm._settings)
+    saved_path = sm._config_path
+    sm._config_path = tmp_path / "settings.json"
+    sm._settings.update({
+        "mobile_max_records": 10,
+        "mobile_send_mode": "",
+    })
+    try:
+        yield sm
+    finally:
+        sm._settings = snapshot
+        sm._config_path = saved_path
+
+
+def _uplink(ws, phone, key, value):
+    """发一帧上行 config（加密）。"""
+    ws.send(phone.encrypt({"type": "config", "key": key, "value": value}))
+
+
+class TestUplinkConfig:
+    def _connected(self, secure_server):
+        host, port, queue, sc = secure_server
+        phone = PhoneSimulator(sc.get_public_key_b64())
+        ws = ws_connect(ws_url(host, port, sc))
+        authenticate(ws, phone)
+        consume_connect(queue)
+        consume_initial_config(ws, phone)
+        return ws, phone
+
+    def test_initial_config_carries_uplink_keys(self, secure_server):
+        """首帧全量：换设备 / 清缓存后靠它把全部设置带回来"""
+        host, port, queue, sc = secure_server
+        phone = PhoneSimulator(sc.get_public_key_b64())
+
+        with ws_connect(ws_url(host, port, sc)) as ws:
+            authenticate(ws, phone)
+            consume_connect(queue)
+
+            inner = phone.decrypt(ws.recv(timeout=2))
+            assert inner["type"] == "config"
+            for key in ("mobile_max_records", "mobile_send_mode", "max_frame_size"):
+                assert key in inner, f"首帧缺少配置键: {key}"
+
+    def test_accepts_value_and_echoes_exactly_once(self, secure_server, isolated_settings):
+        """落盘 + 由 setting_changed 热推回一帧（不能再补第二帧）"""
+        ws, phone = self._connected(secure_server)
+        with ws:
+            _uplink(ws, phone, "mobile_send_mode", "manual")
+
+            inner = phone.decrypt(ws.recv(timeout=2))
+            assert inner["type"] == "config"
+            assert inner["mobile_send_mode"] == "manual"
+            assert isolated_settings.get("mobile_send_mode") == "manual"
+
+            with pytest.raises(TimeoutError):
+                ws.recv(timeout=0.4)      # 恰好一帧：多推一帧就说明回声被放大了
+
+    def test_rejects_bad_type_and_echoes_real_value(self, secure_server, isolated_settings):
+        """非法值不落盘，但必须回真实值 —— 否则手机端永远停在错误的乐观状态"""
+        ws, phone = self._connected(secure_server)
+        with ws:
+            before = isolated_settings.get("mobile_max_records")
+            _uplink(ws, phone, "mobile_max_records", "not-a-number")
+
+            inner = phone.decrypt(ws.recv(timeout=2))
+            assert inner["mobile_max_records"] == before
+            assert isolated_settings.get("mobile_max_records") == before
+
+    def test_clamps_max_records(self, secure_server, isolated_settings):
+        ws, phone = self._connected(secure_server)
+        with ws:
+            _uplink(ws, phone, "mobile_max_records", 999)
+            assert phone.decrypt(ws.recv(timeout=2))["mobile_max_records"] == 50
+            assert isolated_settings.get("mobile_max_records") == 50
+
+    def test_send_mode_rejects_empty(self, secure_server, isolated_settings):
+        """空串只作为「从未配置过」初始态，写回必须是具体模式"""
+        ws, phone = self._connected(secure_server)
+        with ws:
+            isolated_settings.set("mobile_send_mode", "manual")
+            assert phone.decrypt(ws.recv(timeout=2))["mobile_send_mode"] == "manual"
+
+            _uplink(ws, phone, "mobile_send_mode", "")
+            assert phone.decrypt(ws.recv(timeout=2))["mobile_send_mode"] == "manual"
+            assert isolated_settings.get("mobile_send_mode") == "manual"
+
+    def test_unknown_key_is_dropped_silently(self, secure_server, isolated_settings):
+        """白名单外的键：不落盘、不回帧（旧手机页面不该因多问一句被打断）"""
+        ws, phone = self._connected(secure_server)
+        with ws:
+            before = isolated_settings.get("auth_method")
+            _uplink(ws, phone, "auth_method", "tofu")
+
+            with pytest.raises(TimeoutError):
+                ws.recv(timeout=0.4)
+            assert isolated_settings.get("auth_method") == before

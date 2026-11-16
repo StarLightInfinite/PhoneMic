@@ -2631,11 +2631,20 @@
             });
             this.btnClear.addEventListener('touchstart', (e) => { e.preventDefault(); this.btnClear.click(); });
 
-            // 常显分段控件：点哪边就是哪边，并写入 localStorage 供下次打开沿用
+            // 常显分段控件：点哪边就是哪边。
+            // 发送方式是双向 config 键：连着 PC 时上行写入 settings.json（唯一真相源），
+            // 换设备/清缓存后靠首帧 config 带回；localStorage 只作断网时的离线缓存。
             this.modeButtons.forEach((btn) => {
                 btn.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    this.setAutoMode(btn.dataset.sendMode === 'auto', true);
+                    const auto = btn.dataset.sendMode === 'auto';
+                    this.setAutoMode(auto, true);  // 先乐观更新 + 写本地缓存
+                    // 上行写回 PC；断网时 sendFrame 返回 false，本地缓存仍生效，
+                    // 重连后首帧 config 会以 PC 为准纠正。回声走 on('config') 自愈。
+                    this.wsClient.sendFrame({
+                        type: 'config', key: 'mobile_send_mode',
+                        value: auto ? 'auto' : 'manual',
+                    });
                     if (navigator.vibrate) navigator.vibrate(20);
                     this.inputBox.focus();
                 });
@@ -5327,7 +5336,9 @@
                 appConfig.set('maxHistory', data.mobile_max_records);
                 console.debug(t('log_config_updated') + data.mobile_max_records);
             }
-            // 发送方式：PC 端「手机端设置」下发。空值=默认，不干预手机端当前选择
+            // 发送方式：双向 config。首帧把 PC 的设置带回（换机/清缓存后不丢），
+            // 手机点分段控件的上行回声也走这里，以 PC 真实值为准自愈。
+            // 空值=从未配置，不干预手机端当前选择。
             if (data.mobile_send_mode !== undefined && data.mobile_send_mode !== '') {
                 uiController.setAutoMode(data.mobile_send_mode === 'auto');
                 console.debug('[Config] send mode = ' + data.mobile_send_mode);

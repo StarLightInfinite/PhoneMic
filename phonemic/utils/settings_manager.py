@@ -12,6 +12,35 @@ from PySide6.QtCore import QObject, Signal, QStandardPaths
 from phonemic.utils import system_lang
 from phonemic.utils.paths import get_config_dir
 
+# ---------- 手机端配置：取值范围与规范化 ----------
+# 这两个键由手机端设置写入（上行 config 帧），校验必须放在这里：
+# settings.json 是唯一真相源，脏值一旦落盘，之后每次握手都会被下发出去。
+MOBILE_MAX_RECORDS_MIN = 5
+MOBILE_MAX_RECORDS_MAX = 50
+
+# 手机端可写回的配置键 —— 白名单，不在表里的一律丢弃（见 api.py 的 config 上行分支）
+MOBILE_UPLINK_KEYS = (
+    "mobile_max_records",
+    "mobile_send_mode",
+)
+
+
+def normalize_uplink_config(key: str, value: Any) -> Optional[Any]:
+    """手机端上行 config 帧的规范化入口。非法返回 None（调用方据此丢弃并回真实值）。
+
+    只认真布尔、只认范围内的整数 —— 手机端不校验也能走到这里，
+    脏数据绝不能穿过这一层进入 settings.json。
+    """
+    if key == "mobile_max_records":
+        if isinstance(value, bool) or not isinstance(value, int):
+            return None
+        return max(MOBILE_MAX_RECORDS_MIN, min(MOBILE_MAX_RECORDS_MAX, value))
+    if key == "mobile_send_mode":
+        # "" 只作为「从未配置过」的初始态保留，手机端写回必须落到具体模式
+        return value if value in ("auto", "manual") else None
+    return None
+
+
 class SettingsManager(QObject):
     """配置管理单例类 - 精准变更通知"""
     
@@ -101,6 +130,16 @@ class SettingsManager(QObject):
                 # 校验 mobile_send_mode（"" 表示不干预，手机端用自己的默认值）
                 if loaded.get("mobile_send_mode") not in ("", "auto", "manual"):
                     loaded["mobile_send_mode"] = default["mobile_send_mode"]
+                # 聊天记录上限：夹到滑杆范围内，而不是重置成默认值（用户的范围感不要丢）
+                if isinstance(loaded.get("mobile_max_records"), int) and not isinstance(
+                    loaded.get("mobile_max_records"), bool
+                ):
+                    loaded["mobile_max_records"] = max(
+                        MOBILE_MAX_RECORDS_MIN,
+                        min(MOBILE_MAX_RECORDS_MAX, loaded["mobile_max_records"]),
+                    )
+                else:
+                    loaded["mobile_max_records"] = default["mobile_max_records"]
                 # 校验 server_port：必须是 1024-65535 的整数（bool 是 int 子类，先排除）
                 if "server_port" in loaded:
                     val = loaded["server_port"]
