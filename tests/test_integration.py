@@ -340,6 +340,15 @@ def secure_pair(page, request):
     yield page, channel, algo
 
 
+def _use_manual_mode(page):
+    """切到手动上屏：避免自动模式在测试填字时抢先发 preview/send。
+
+    旧的隐藏开关（#mode-toggle）已改为常驻分段控件，点击项是
+    `#send-mode-seg button[data-send-mode="manual"]`。
+    """
+    page.locator('#send-mode-seg button[data-send-mode="manual"]').click()
+
+
 # ---------- 握手测试 ----------
 
 class TestHandshake:
@@ -388,7 +397,7 @@ class TestJSToPython:
     def test_send_message(self, secure_pair):
         """JS → Python：发送消息，Python 解密验证。"""
         page, channel, algo = secure_pair
-        page.locator("#mode-toggle").click()
+        _use_manual_mode(page)
         page.locator("#input-box").fill("hello from JS")
         page.locator("#btn-send").click()
 
@@ -401,7 +410,7 @@ class TestJSToPython:
     def test_preview_message(self, secure_pair):
         """JS → Python：输入触发 preview，Python 解密验证。"""
         page, channel, algo = secure_pair
-        page.locator("#mode-toggle").click()
+        _use_manual_mode(page)
         page.locator("#input-box").fill("preview text")
 
         sent = page.evaluate("() => window.__mockWS.sentMessages")
@@ -413,7 +422,7 @@ class TestJSToPython:
     def test_multiple_messages_sequential(self, secure_pair):
         """JS → Python：连续发送多条消息，全部正确解密。"""
         page, channel, algo = secure_pair
-        page.locator("#mode-toggle").click()
+        _use_manual_mode(page)
 
         texts = ["msg1", "msg2", "msg3"]
         for text in texts:
@@ -430,7 +439,7 @@ class TestJSToPython:
     def test_message_displayed_in_chat(self, secure_pair):
         """JS 发送的消息显示在聊天列表中。"""
         page, channel, algo = secure_pair
-        page.locator("#mode-toggle").click()
+        _use_manual_mode(page)
         page.locator("#input-box").fill("chat msg")
         page.locator("#btn-send").click()
 
@@ -490,7 +499,7 @@ class TestRoundtrip:
         assert page.evaluate("() => window.chatManagerInstance.maxHistory") == 5
 
         # JS → Python: send
-        page.locator("#mode-toggle").click()
+        _use_manual_mode(page)
         page.locator("#input-box").fill("roundtrip")
         page.locator("#btn-send").click()
 
@@ -686,7 +695,7 @@ class TestTofuFirst:
         assert not page.locator("#approval-overlay").is_visible()
 
         # JS → Python：加密 send 能解密（两端独立 ECDH 得到同一会话密钥）
-        page.locator("#mode-toggle").click()
+        _use_manual_mode(page)
         page.locator("#input-box").fill("tofu hello")
         page.locator("#btn-send").click()
         sent = page.evaluate("() => window.__mockWS.sentMessages")
@@ -755,7 +764,7 @@ class TestCloudflareUrlFragment:
         assert page.evaluate("() => window.chatManagerInstance.maxHistory") == 8
 
         # JS → Python：加密 send，Python 解密得到原文
-        page.locator("#mode-toggle").click()
+        _use_manual_mode(page)
         page.locator("#input-box").fill("cf roundtrip")
         page.locator("#btn-send").click()
 

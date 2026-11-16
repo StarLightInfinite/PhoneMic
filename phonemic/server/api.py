@@ -32,6 +32,7 @@ from phonemic.bridge_interface import EventBridge
 from phonemic.gui.file import FileReceiver
 from phonemic.gui.photo import PhotoReceiver
 from phonemic.server.transfer import TransferQueue
+from phonemic.server.history import get_history_store, now_iso
 from phonemic.tunnel.e2ee import AUTH_TIMEOUT, APPROVAL_TIMEOUT, SecureChannel
 from phonemic.tunnel.crypto.errors import CryptoError
 from phonemic.tunnel.frame import FrameError
@@ -43,6 +44,24 @@ from phonemic.utils.settings_manager import SettingsManager
 from phonemic.utils.i18n import I18n
 
 logger = logging.getLogger(__name__)
+
+
+def _client_ip(websocket) -> str:
+    """WebSocket 对端 IP；拿不到时返回空串（测试替身可能没有 client）。"""
+    try:
+        client = getattr(websocket, "client", None)
+        return client.host if client else ""
+    except Exception:
+        return ""
+
+
+def _client_user_agent(websocket) -> str:
+    """握手请求里的 UA，用于主界面展示「是什么设备连上来的」。"""
+    try:
+        headers = getattr(websocket, "headers", None)
+        return (headers.get("user-agent") or "") if headers is not None else ""
+    except Exception:
+        return ""
 
 
 class ConnectionManager:
@@ -60,6 +79,10 @@ class ConnectionManager:
         self.active_websocket = None
         self.active_session = None
         self.bridge = bridge
+        # 当前连接对应的设备记录（主界面「设备」卡片的数据源）。
+        # 只保留最近一次连接的快照：断开后仍要能显示「刚才那台设备」。
+        self._device: Dict[str, Any] = {}
+        self._history_session_id: Optional[int] = None
 
         # 配置热重载支持
         self.sm = SettingsManager.instance()
@@ -93,6 +116,7 @@ class ConnectionManager:
             old_ws = self.active_websocket
             self.active_websocket = None
             self.active_session = None
+            self._end_history_session()
             try:
                 await old_ws.close(code=1000)
                 self.bridge.emit("disconnect")
@@ -102,8 +126,10 @@ class ConnectionManager:
 
         self.active_websocket = websocket
         self.active_session = session
-        # connect 事件携带本次握手协商出的算法，供状态栏透明展示
+        # 先发 connect：既有调用方（主进程/测试）都把「认证后的第一条事件」当作
+        # connect，设备信息只是它的补充，不能插到前面改变顺序。
         self.bridge.emit("connect", session.negotiated_algorithm)
+        self._begin_history_session(websocket, session)
         logger.info(
             f"WebSocket connected, connection established "
             f"(algorithm={session.negotiated_algorithm})"
@@ -125,6 +151,62 @@ class ConnectionManager:
         except Exception as e:
             logger.warning(f"Failed to send initial config: {e}")
 
+    def _begin_history_session(self, websocket, session) -> None:
+        """连接建立：落一条设备会话，并把「谁连上来了」推给 PC 主界面。"""
+        ip = _client_ip(websocket)
+        ua = _client_user_agent(websocket)
+        algo = getattr(session, "negotiated_algorithm", "") or ""
+        self._device = {
+            "ip": ip,
+            "user_agent": ua,
+            "algorithm": algo,
+            "since": now_iso(),
+        }
+        try:
+            store = get_history_store()
+            self._history_session_id = store.start_session(ip, ua, algo)
+        except Exception:
+            logger.exception("Failed to record client session")
+            self._history_session_id = None
+        self.bridge.emit("device_info", self._device_payload(True))
+
+    def _end_history_session(self) -> None:
+        try:
+            if self._history_session_id is not None:
+                get_history_store().end_session(self._history_session_id)
+        except Exception:
+            logger.exception("Failed to close client session")
+        finally:
+            self._history_session_id = None
+
+    def _device_payload(self, connected: bool) -> Dict[str, Any]:
+        """设备卡片快照：当前设备 + 历史设备数 + 最近几次连接。"""
+        try:
+            store = get_history_store()
+            stats = store.stats()
+            sessions = store.recent_sessions(6)
+        except Exception:
+            logger.exception("Failed to load device stats")
+            stats = {"devices": 0}
+            sessions = []
+        payload = dict(self._device)
+        payload.update({
+            "connected": bool(connected),
+            "devices": int(stats.get("devices", 0)),
+            "sessions": sessions,
+        })
+        return payload
+
+    def record_message(self, websocket, text: str) -> None:
+        """把最终发送的文本写入历史库，并推给 PC 主界面（最新在前）。"""
+        record = None
+        try:
+            record = get_history_store().add_message(text, _client_ip(websocket))
+        except Exception:
+            logger.exception("Failed to record message history")
+        if record is not None:
+            self.bridge.emit("message_logged", record)
+
     def session_for(self, websocket):
         """返回该连接对应的 SecureSession，非活动连接返回 None。"""
         if self.active_websocket is websocket:
@@ -139,9 +221,11 @@ class ConnectionManager:
         if self.active_websocket is websocket:
             self.active_websocket = None
             self.active_session = None
+            self._end_history_session()
             # 断连时丢弃未完成的文件/图片接收会话（wire-protocol.md §9）
             _get_transfer_queue().abort_all()
             self.bridge.emit("disconnect")
+            self.bridge.emit("device_info", self._device_payload(False))
             logger.info("Active WebSocket disconnected, event sent.")
 
 
@@ -866,7 +950,13 @@ async def _handle_client_message(websocket, session, raw: bytes) -> bool:
     msg_type = inner.get("type")
     text = inner.get("text", "")
     if msg_type in ("preview", "send"):
+        # 先把业务事件交给主进程（上屏/预览），再落历史。
+        # 顺序不要反：主进程与既有集成测试都把「send」当作这一帧的直接结果，
+        # message_logged 只是随后的界面补充事件。
         _manager.bridge.emit(msg_type, text)
+        # 只记「最终发出去的那条」：preview 是识别中的半截词，逐帧落库没有价值。
+        if msg_type == "send" and isinstance(text, str) and text.strip():
+            _manager.record_message(websocket, text)
         logger.debug(f"Received {msg_type}: {text[:50]}...")
     elif msg_type == "key":
         # keys 直接喂给 phonemic/gui/keyboard.py:send_keys()
@@ -1270,6 +1360,43 @@ def _serve_keepalive(request: Request) -> Response:
     )
 
 
+def _serve_history(request: Request) -> Response:
+    """手机端历史面板：按时间倒序分页返回历史文本 + 汇总统计。
+
+    只在加密入口下可达（明文模式也已加入白名单）；返回内容含用户原文，
+    因此必须禁用缓存，避免共享设备上的浏览器把历史留在磁盘缓存里。
+    """
+    def _int_param(name: str, default: int, lo: int, hi: int) -> int:
+        try:
+            value = int(request.query_params.get(name, default))
+        except (TypeError, ValueError):
+            return default
+        return max(lo, min(value, hi))
+
+    limit = _int_param("limit", 50, 1, 200)
+    offset = _int_param("offset", 0, 0, 1_000_000)
+    try:
+        store = get_history_store()
+        messages = store.recent_messages(limit, offset)
+        stats = store.stats()
+    except Exception as e:
+        logger.error(f"Failed to load history: {e}")
+        return JSONResponse(content={"messages": [], "stats": {}}, status_code=500)
+    return JSONResponse(
+        content={
+            "messages": messages,
+            "stats": stats,
+            "limit": limit,
+            "offset": offset,
+        },
+        headers={
+            "Cache-Control": "no-store",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
+
+
 # 明文模式放行的白名单（根路径入口）
 
 _PUBLIC_PATHS = {
@@ -1284,6 +1411,8 @@ _PUBLIC_PATHS = {
     "/debug_log.js",
     "/ws",
     "/api/lang.json",
+    # 历史输入（GET）：加密入口下由 secret 前缀保护；明文模式同样需要放行
+    "/api/history",
     # 隧道保活探测（GET）：仅返回 {"status":"ok"}，供本机保活器周期请求，
     # 让快隧道持续有真实 HTTP 流量、不被 Cloudflare 判为空闲回收
     "/api/keepalive",
@@ -1345,6 +1474,8 @@ async def _dispatch_http(request: Request, path: str) -> Response:
         return _serve_mobile()
     if normalized == "/api/lang.json":
         return _serve_lang_json()
+    if normalized == "/api/history":
+        return _serve_history(request)
     if normalized == "/api/keepalive":
         return _serve_keepalive(request)
     if normalized in ["/sodium.js", "/crypto_providers.js", "/msgpack.min.js"]:

@@ -1,8 +1,31 @@
-<div align="left">
-  <img src="LOGO.png" alt="PhoneMic Logo" width="200"/>
+<div align="center">
+  <img src="LOGO.png" alt="PhoneMic Logo" width="180"/>
 </div>
 
-# PhoneMic - 让手机成为电脑的语音输入终端
+<h1 align="center">PhoneMic · 让手机成为电脑的语音输入终端</h1>
+
+<p align="center">
+  <a href="https://github.com/StarLightInfinite/PhoneMic/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License"/></a>
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.13-blue.svg" alt="Python"/></a>
+  <img src="https://img.shields.io/badge/platform-Windows%2010%2F11-green.svg" alt="Platform"/>
+  <img src="https://img.shields.io/badge/version-0.6.2-orange.svg" alt="Version"/>
+  <img src="https://img.shields.io/badge/encryption-E2EE-brightgreen.svg" alt="Encryption"/>
+</p>
+
+<p align="center">
+  <b>手机扫码即用，把手机上任意输入法的语音识别结果实时送到电脑光标处。</b><br/>
+  电脑无需麦克风硬件 · 全程端到端加密 · 可当无线鼠标 / 触控板 · 支持文件与图片传输
+</p>
+
+<p align="center">
+  <a href="#-简介">简介</a> · <a href="#-工作原理">工作原理</a> · <a href="#-核心特性">核心特性</a> · <a href="#-快速开始">快速开始</a> · <a href="#-安装方式">安装</a> · <a href="#-安全与隐私">安全</a> · <a href="#-开发">开发</a> · <a href="#-许可证">许可证</a>
+  <br/>
+  <a href="USER_GUIDE.md">完整使用指南（中文）</a> · <a href="USER_GUIDE_en_US.md">User Guide (EN)</a>
+</p>
+
+> **致谢上游**：本项目基于 [franj/PhoneMic](https://github.com/franj/PhoneMic) 开发，沿用其 Apache 2.0 开源许可，并在此基础上持续演进。感谢原作者的贡献。
+
+---
 
 ## 📖 简介
 
@@ -12,7 +35,23 @@
 
 除了语音输入，PhoneMic 还能让手机当**无线鼠标/触控板**用、一键触发**快捷键**，以及把手机上的**文件和图片**直接传到电脑上，具体可以在手机端页面自行探索。
 
-**核心特性：**
+## 🏗 工作原理
+
+手机与电脑通过建立一条本地或经 Cloudflare 中转的加密通道通信；手机端浏览器把识别出的文字封装成消息，电脑端收到后按配置模拟键盘或写入剪贴板。私钥只在两端设备上，中间节点看不到明文。
+
+```mermaid
+flowchart LR
+    A["📱 手机浏览器<br/>任意输入法语音识别"] -->|"文字 / 文件 / 触控事件"| B{"网络通道"}
+    B -->|"局域网直连"| C["💻 PC 端 PhoneMic 服务"]
+    B -->|"Cloudflare 隧道<br/>（可选，异地场景）"| C
+    C -->|"端到端加密<br/>libsodium / noble"| D["⌨️ 当前光标上屏<br/>剪贴板 / 模拟键盘"]
+    C -->|"实时预览"| E["🪟 桌面悬浮窗"]
+    style B fill:#fff4d6,stroke:#d9a441
+    style D fill:#e3f2fd,stroke:#4a90d9
+    style E fill:#e8f5e9,stroke:#5aa469
+```
+
+## ✨ 核心特性
 
 - ✅ **无需安装 App** – 手机扫码即用，浏览器直接访问，不占手机空间
 - ✅ **完美适配电脑无麦场景** – 电脑无需任何麦克风硬件，全靠手机端输入法完成语音转文字
@@ -21,56 +60,49 @@
 - ✅ **语音命令** – 自定义文字触发模拟按键、输入文本或运行外部程序
 - ✅ **词典纠正** – 语音识别对某些词的错法是固定的，维护一张「错 → 对」的替换表，上屏前自动套用，不用每次手动改
 - ✅ **终端也能上屏** – 除剪贴板粘贴外，还可切换为模拟键盘逐字符输入，在 cmd / PowerShell / Windows Terminal / SSH 客户端 / vim 等不支持 Ctrl+V 的程序里照样可用；选「模拟键盘（实时）」则像输入法一样，说话过程中文字就逐字出现在光标处
-- ✅ **手机遥控电脑** – 手机端可展开控制面板，当触控板、鼠标摇杆用，还能一键触发常用快捷键（Ctrl+Z / Alt+Tab等）
+- ✅ **手机遥控电脑** – 手机端可展开控制面板，当触控板、鼠标摇杆用，还能一键触发常用快捷键（Ctrl+Z / Alt+Tab 等）
 - ✅ **文件/图片传输** – 手机上的文件直接传到电脑下载目录，图片则一键写入剪贴板，粘贴即用
+- ✅ **输入历史** – 手机端历史面板与 PC 主界面共用一份记录，历史文本与连接过的设备一目了然
 - ✅ **隐私安全** – 通信**全程端到端加密**，密钥只在手机和电脑两端，中间节点看不到内容：局域网数据不经过云端，Cloudflare 则在 HTTPS 之上再叠加一层（**0.6.1 起所有模式一律加密**，此前局域网模式可以选择不加密）。认证方式可选 **人工认证**（局域网默认，首次在电脑上核对 4 位识别码并点「允许」，之后自动认证）或 **扫码认证**，在菜单 **网络** 里切换；两种都能扫码连接，人工认证也可以直接输入地址。
 
 ## 🚀 快速开始
 
-1. **下载安装**  
-   从以下任一平台下载最新的安装包并运行安装：
-   - [GitHub Releases](https://github.com/franj/PhoneMic/releases)
-   - [Gitee Releases](https://gitee.com/franj/PhoneMic/releases)
-   
-   提供两个版本：标准版（`PhoneMic_Setup_...exe`）和内嵌版（`PhoneMic_Setup_bundled_...exe`，自带 cloudflared，开箱即用）。
+1. **下载安装**
+   从 [GitHub Releases](https://github.com/StarLightInfinite/PhoneMic/releases) 下载最新的安装包并运行安装。提供两个版本：标准版（`PhoneMic_Setup_...exe`）和内嵌版（`PhoneMic_Setup_bundled_...exe`，自带 cloudflared，开箱即用）。
 
-2. **启动程序**  
+2. **启动程序**
    安装完成后，双击桌面图标或从开始菜单启动 PhoneMic。
 
-3. **连接手机**  
+3. **连接手机**
    - 程序启动后，如果检测到多个 IP 地址，请选择手机所在网络的 IP。
    - 用手机相机扫描主界面上的二维码，手机浏览器会自动打开 PhoneMic 页面。
-   - 当手机页面显示“已连接”时，即可开始使用。
+   - 当手机页面显示"已连接"时，即可开始使用。
    - 不方便扫码时，也可在手机浏览器直接输入主界面显示的地址；若认证方式是「人工认证」（局域网默认），扫码和输入地址都一样，首次连接需在电脑上点一次「允许」（详见[加密与认证](USER_GUIDE.md#27-加密与认证)）。
 
-4. **开始使用**  
+4. **开始使用**
    - 在手机输入框中输入文字（或使用语音输入），电脑悬浮窗会实时显示。
    - 默认自动发送模式：语音识别结束后文字自动上屏。
-   - 如果发送的文本符合用户定义命令，会触发自定义动作，例如手机语音发送“确定”，电脑端会触发回车。
-   - 您也可以在手机页面切换到手动发送模式，点击“发送”按钮上屏。
+   - 如果发送的文本符合用户定义命令，会触发自定义动作，例如手机语音发送"确定"，电脑端会触发回车。
+   - 也可以在手机页面切换到手动发送模式，点击"发送"按钮上屏。
 
 ## 📦 安装方式
 
 ### 方式一：使用预编译安装包（推荐）
 
-前往以下任一 Releases 页面下载安装包：
-- [GitHub Releases](https://github.com/franj/PhoneMic/releases)
-- [Gitee Releases](https://gitee.com/franj/PhoneMic/releases)
-
-提供内嵌版本（`PhoneMic_Setup_bundled_...exe`，自带 cloudflared，开箱即用）。
+前往 [GitHub Releases](https://github.com/StarLightInfinite/PhoneMic/releases) 下载安装包，提供内嵌版本（`PhoneMic_Setup_bundled_...exe`，自带 cloudflared，开箱即用）。
 
 ### 方式二：从源码运行
 
-需要先安装 uv，详见 https://docs.astral.sh/uv/getting-started/installation/ ，windows安装命令如下：
+先安装 [uv](https://docs.astral.sh/uv/getting-started/installation/)，Windows 安装命令如下：
+
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-打开命令行，依次运行下列命令：
-```bash
-# 克隆仓库（如果github连接不上可选镜像 https://gitee.com/franj/PhoneMic.git ）
-git clone https://github.com/franj/PhoneMic.git
+然后打开命令行，依次运行：
 
+```bash
+git clone https://github.com/StarLightInfinite/PhoneMic.git
 cd PhoneMic
 
 # 安装依赖
@@ -78,21 +110,20 @@ uv venv --python 3.13.14
 uv sync --no-dev
 
 # 运行程序
-uvw run app
+uv run app
 ```
 
-创建从源码运行的桌面快捷方式（可选）：依赖同步（uv sync）完成后，运行仓库自带的 `make_windows_lnk.ps1`，即可在桌面生成名为 **PhoneMic Dev** 的快捷方式，之后双击图标就能启动，无需每次开命令行，也不用下载安装包：
+创建从源码运行的桌面快捷方式（可选）：依赖同步完成后，运行仓库自带的 `make_windows_lnk.ps1`，即可在桌面生成名为 **PhoneMic Dev** 的快捷方式，之后双击图标就能启动，无需每次开命令行。
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\make_windows_lnk.ps1
 ```
-
-make_windows_lnk脚本会以当前仓库为工作目录，用源码目录下 `.venv` 里的 `pythonw.exe` 启动程序，并套用 `phonemic/resources/favicon.ico` 作为图标。若项目移动位置，需重新运行一次make_windows_lnk。
 
 > 从源码运行时，如需使用 Cloudflare 隧道模式，需自行安装 `cloudflared`，详见下文[前置条件](#前置条件)。
 
 #### 调试模式（排查问题时才需要）
 
-默认关闭——直接运行就是正常使用，不会多出任何诊断入口。需要看手机端现场（手机上尤其微信内置浏览器没有 devtools）时，用 `--debug` 或环境变量 `PHONEMIC_DEBUG=1` 启动：
+默认关闭——直接运行就是正常使用，不会多出任何诊断入口。需要看手机端现场（尤其微信内置浏览器没有 devtools）时，用 `--debug` 或环境变量 `PHONEMIC_DEBUG=1` 启动：
 
 ```bash
 uv run app --debug
@@ -109,16 +140,16 @@ PhoneMic 默认在局域网内工作。如果手机和电脑不在同一局域�
 ### 前置条件
 
 1. 安装 `cloudflared`（三选一）：
-   - **bundled 安装包用户：** cloudflared 已内嵌，无需额外安装，跳过即可。
+   - **bundled 安装包用户：** cloudflared 已内嵌，无需额外安装。
    - **安装版：** 前往 [cloudflared Releases](https://github.com/cloudflare/cloudflared/releases) 下载 `.msi` 安装包，双击安装，自动配置 PATH。
    - **免安装版：** 下载 `cloudflared-windows-amd64.exe`，重命名为 `cloudflared.exe`，放到系统 PATH 目录下（如 `C:\Windows\`），或放到 PhoneMic 程序同级目录。
-   - 安装后在命令行执行 `cloudflared --version` 确认可用（bundled 用户可跳过此步）。
+   - 安装后执行 `cloudflared --version` 确认可用（bundled 用户可跳过）。
 
 2. 无需 Cloudflare 账号。PhoneMic 使用的是 Cloudflare 免费快速隧道（`trycloudflare.com`），每次启动会分配一个随机域名。
 
 ### 使用步骤
 
-1. 在 PhoneMic 主界面菜单栏点击 **网络 → Cloudflare** 切换模式。
+1. 在主界面菜单栏点击 **网络 → Cloudflare** 切换模式。
 2. 程序会自动启动隧道，成功后界面显示二维码。
 3. 用手机扫码打开页面，手机端自动完成密钥交换与认证（该模式固定使用扫码认证）。
 4. 认证通过后即可正常使用。
@@ -167,7 +198,7 @@ PhoneMic 支持自定义命令，在手机完成发送文本后，电脑将特�
 
 所有命令立即生效，无需重启。
 
-**进阶用户提示**：你可以直接编辑配置文件 `C:\Users\你的用户名\AppData\Local\PhoneMic\config\commands.json` 来批量管理命令。修改前请备份，并确保 JSON 格式正确（逗号、引号等）。
+**进阶用户提示**：也可以直接编辑 `%LOCALAPPDATA%\PhoneMic\config\commands.json` 来批量管理命令。修改前请备份，并确保 JSON 格式正确（逗号、引号等）。
 
 ## 🔤 词典纠正（扩展功能）
 
@@ -202,7 +233,51 @@ PhoneMic 支持自定义命令，在手机完成发送文本后，电脑将特�
 - 词典先于语音命令生效：把听错的词纠正回来后，你已经写好的命令依然能命中。
 - 所有词条立即生效，无需重启。
 
-**进阶用户提示**：也可以直接编辑 `C:\Users\你的用户名\AppData\Local\PhoneMic\config\dictionary.json` 来批量管理词条，格式见 [docs/text-dictionary-design.md](docs/text-dictionary-design.md)。
+**进阶用户提示**：也可以直接编辑 `%LOCALAPPDATA%\PhoneMic\config\dictionary.json` 来批量管理词条，格式见 [docs/text-dictionary-design.md](docs/text-dictionary-design.md)。
+
+## 🔐 安全与隐私
+
+PhoneMic 把隐私作为默认选项，而非可选项：
+
+- **端到端加密（E2EE）**：0.6.1 起所有网络模式一律加密。PC 公钥经二维码带外传递，手机用 `crypto_box_seal` 密封自己的公钥，之后双向通信全部加密；局域网数据不经过任何云端服务器。
+- **中间节点零明文**：即使走 Cloudflare 隧道，中间节点也只能看到密文。
+- **端点门禁**：随机 `secret_path` 作为 URL 入口门禁防止被扫描，与公钥认证各司其职。
+- **设备认证**：可选人工认证（4 位识别码核对）或扫码认证，首次连接需用户显式确认。
+- **本地存储**：配置、命令、词典、历史均存于本机 `%LOCALAPPDATA%\PhoneMic\`，不上传。
+
+设计细节见 [docs/crypto-design.md](docs/crypto-design.md)、[docs/e2ee-always-on-design.md](docs/e2ee-always-on-design.md) 与 [docs/wire-protocol.md](docs/wire-protocol.md)。
+
+> 提醒：请在可控的网络环境中使用；在公司/单位网络建立外部隧道前，请确认符合单位安全规定。
+
+## 🧪 开发
+
+从源码运行后，一条命令跑全量测试（约 1165 条用例，并行约 28 秒）：
+
+```bash
+uv sync          # 含 dev 依赖
+uv run pytest    # 全量测试
+uv run pytest -n0 tests/test_backend.py   # 串行调试单个文件
+```
+
+测试默认以 4 个 worker 并行、`--dist worksteal` 方式调度；细节见 `pyproject.toml` 中的注释。架构与设计文档集中在 [`docs/`](docs/) 目录。
+
+### 项目结构
+
+```
+PhoneMic/
+├── phonemic/
+│   ├── PhoneMic.py          # 程序入口与托盘
+│   ├── gui/                 # PySide6 界面（主界面/悬浮窗/各类配置对话框）
+│   ├── server/              # 本地 HTTP/WS 服务、输入历史
+│   ├── tunnel/              # 网络通道：E2EE、Cloudflare、保活、帧协议
+│   ├── utils/               # 配置、词典、命令、i18n、输入解析等
+│   └── resources/           # 前端页面、图标、多语言资源
+├── tests/                   # 后端、前端、集成与 E2EE 测试
+├── docs/                    # 设计与协议文档
+├── build_nuitka.py          # Nuitka 打包脚本
+├── makesetup.nsi            # NSIS 安装包脚本
+└── pyproject.toml           # 依赖与测试配置
+```
 
 ## 📄 许可证
 
@@ -223,31 +298,36 @@ PhoneMic 支持自定义命令，在手机完成发送文本后，电脑将特�
 - pyparsing (MIT)
 - PyNaCl (BSD 3-Clause) – [主页](https://github.com/pyca/pynacl)
 - msgpack (Apache 2.0) – [主页](https://github.com/msgpack/msgpack-python)
+- markdown-it-py (MIT)
 - @noble/ciphers / @noble/curves / @noble/hashes (MIT) – [ciphers](https://github.com/paulmillr/noble-ciphers) / [curves](https://github.com/paulmillr/noble-curves) / [hashes](https://github.com/paulmillr/noble-hashes)
 - @serenity-kit/noble-sodium (MIT) – [主页](https://github.com/serenity-kit/noble-sodium)
 - @msgpack/msgpack.js (MIT) – [主页](https://github.com/msgpack/msgpack-javascript)
 - cloudflared (Apache 2.0, 可选) – [主页](https://github.com/cloudflare/cloudflared)
 
-详细的版权和许可声明请参阅 [NOTICE.txt](NOTICE.txt) 文件。
+详细的版权和许可声明请参阅 [NOTICE.txt](NOTICE.txt) 文件。根据 LGPL 协议要求，您可以替换 PySide6 的动态库文件，并获取 Qt 的完整源代码（见 `NOTICE.txt`）。
 
-根据 LGPL 协议要求，您可以替换 PySide6 的动态库文件，并获取 Qt 的完整源代码（见 `NOTICE.txt`）。
+## 🙏 致谢
+
+- [franj/PhoneMic](https://github.com/franj/PhoneMic) —— 本项目的上游原作者与原始实现。
+- 所有开源依赖库的作者与维护者，正是你们的工作让 PhoneMic 成为可能。
 
 ## 🤝 贡献
 
-欢迎提交 Issue 和 Pull Request！请确保代码符合 PEP8 规范，并尽可能添加测试。
+欢迎提交 Issue 和 Pull Request！提交前请：
 
-- [GitHub Issues](https://github.com/franj/PhoneMic/issues)
-- [Gitee Issues](https://gitee.com/franj/PhoneMic/issues)
+1. 确保代码符合 PEP8 规范，并补充相应测试；
+2. 运行 `uv run pytest` 确认全量测试通过；
+3. 不要在提交中包含个人路径、内网地址、二维码访问链接、临时隧道域名等现场数据。
+
+- [GitHub Issues](https://github.com/StarLightInfinite/PhoneMic/issues)
+- [Pull Requests](https://github.com/StarLightInfinite/PhoneMic/pulls)
 
 ## 📧 联系方式
 
-- 项目主页：
-  - [GitHub](https://github.com/franj/PhoneMic)
-  - [Gitee](https://gitee.com/franj/PhoneMic)
-- 报告问题：
-  - [GitHub Issues](https://github.com/franj/PhoneMic/issues)
-  - [Gitee Issues](https://gitee.com/franj/PhoneMic/issues)
+- 项目主页：[GitHub](https://github.com/StarLightInfinite/PhoneMic)
+- 报告问题：[GitHub Issues](https://github.com/StarLightInfinite/PhoneMic/issues)
+- 上游项目：[franj/PhoneMic](https://github.com/franj/PhoneMic)
 
 ---
 
-© 2026 PhoneMic 开发者
+© 2026 PhoneMic 开发者 · 基于 Apache 2.0 许可证开源

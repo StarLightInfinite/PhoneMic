@@ -58,6 +58,7 @@ class SettingsManager(QObject):
             "auto_start_silent": False,           # 开机自启时是否静默（不显示主窗口）
             "auth_method": "tofu",                # 认证方式: "tofu"(手动审批), "url_fragment"(扫码认证)
             "text_input_mode": "paste",           # 上屏方式: "paste"(剪贴板+Ctrl+V), "type"(模拟键盘逐字符输入), "direct"(模拟键盘+识别过程中直接输入)
+            "server_port": 12000,                 # 服务监听端口（1024-65535），启动时从这里开始找空闲端口
         }
         print(f"default lan is {default['language']}")
         
@@ -100,6 +101,11 @@ class SettingsManager(QObject):
                 # 校验 mobile_send_mode（"" 表示不干预，手机端用自己的默认值）
                 if loaded.get("mobile_send_mode") not in ("", "auto", "manual"):
                     loaded["mobile_send_mode"] = default["mobile_send_mode"]
+                # 校验 server_port：必须是 1024-65535 的整数（bool 是 int 子类，先排除）
+                if "server_port" in loaded:
+                    val = loaded["server_port"]
+                    if isinstance(val, bool) or not isinstance(val, int) or not (1024 <= val <= 65535):
+                        loaded["server_port"] = default["server_port"]
                 self._settings = loaded
             except Exception:
                 # 文件损坏，重置为默认配置

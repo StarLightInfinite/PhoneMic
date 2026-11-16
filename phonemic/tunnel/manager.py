@@ -38,6 +38,15 @@ class TunnelManager:
     def mode(self) -> TunnelMode:
         return self._mode
 
+    def set_port(self, port: int) -> None:
+        """更新服务监听端口，下一次重启/切换模式时按新端口绑定。
+
+        只改状态不起服务：调用方（主程序的端口切换回调）负责先探测占用、
+        再决定走 LAN 的同步重启还是 CF 的 restart_service，失败时还要能
+        把端口改回来——把「改值」和「重启」拆开才能支持回滚。
+        """
+        self._port = int(port)
+
     def set_callbacks(
         self,
         on_url: Optional[Callable[[str], None]] = None,

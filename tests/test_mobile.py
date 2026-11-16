@@ -364,21 +364,28 @@ def sent_messages(page):
 
 class TestPageLoad:
     def test_page_loads_and_connected(self, mobile_page):
-        assert mobile_page.title() == "📱🎙️PhoneMic💬💻"
+        assert mobile_page.title() == "PhoneMic"
         assert not mobile_page.locator("#status-bar").is_visible()
         assert mobile_page.locator("#input-box").is_enabled()
 
-    def test_mode_toggle_visible_when_input_empty(self, mobile_page):
-        assert mobile_page.locator("#mode-toggle").is_visible()
-        mobile_page.locator("#input-box").fill("text")
-        assert mobile_page.locator("#mode-toggle").is_hidden()
-        mobile_page.locator("#input-box").fill("")
-        assert mobile_page.locator("#mode-toggle").is_visible()
+    def test_send_mode_segment_always_visible(self, mobile_page):
+        """发送方式常显，不再靠输入为空时才出现的隐形开关暗示。"""
+        seg = mobile_page.locator("#send-mode-seg")
+        assert seg.is_visible()
+        assert mobile_page.locator("#send-mode-seg button").count() == 2
+        assert mobile_page.locator("#send-mode-hint").is_visible()
+
+
+def _use_manual_mode(page):
+    """切到手动发送：点常显分段控件里的「手动发送」。"""
+    page.locator('#send-mode-seg button[data-send-mode="manual"]').click()
+    assert page.locator('#send-mode-seg button[data-send-mode="manual"]').get_attribute(
+        "aria-checked") == "true"
 
 
 class TestManualMode:
     def test_send_button_sends_message(self, mobile_page):
-        mobile_page.locator("#mode-toggle").click()
+        _use_manual_mode(mobile_page)
         mobile_page.locator("#input-box").fill("hello world")
         mobile_page.locator("#btn-send").click()
         msgs = [m for m in sent_messages(mobile_page) if m["type"] == "send"]
@@ -386,31 +393,116 @@ class TestManualMode:
         assert msgs[0]["text"] == "hello world"
         assert mobile_page.locator("#input-box").input_value() == ""
 
-    def test_enter_key_sends(self, mobile_page):
-        mobile_page.locator("#mode-toggle").click()
-        mobile_page.locator("#input-box").fill("enter test")
+    def test_enter_inserts_newline_without_sending(self, mobile_page):
+        """多行输入区：Enter 是换行，不是发送。误触回车不该把半句话发出去。"""
+        _use_manual_mode(mobile_page)
+        mobile_page.locator("#input-box").fill("first line")
         mobile_page.locator("#input-box").press("Enter")
+        mobile_page.locator("#input-box").type("second line")
+        msgs = [m for m in sent_messages(mobile_page) if m["type"] == "send"]
+        assert msgs == []
+        assert mobile_page.locator("#input-box").input_value() == "first line\nsecond line"
+
+    def test_ctrl_enter_still_sends(self, mobile_page):
+        """桌面浏览器保留快捷发送；手机上仍以按钮为准。"""
+        _use_manual_mode(mobile_page)
+        mobile_page.locator("#input-box").fill("shortcut test")
+        mobile_page.locator("#input-box").press("Control+Enter")
         msgs = [m for m in sent_messages(mobile_page) if m["type"] == "send"]
         assert len(msgs) == 1
-        assert msgs[0]["text"] == "enter test"
-
-    def test_shift_enter_does_not_send(self, mobile_page):
-        mobile_page.locator("#mode-toggle").click()
-        mobile_page.locator("#input-box").fill("shift test")
-        mobile_page.locator("#input-box").press("Shift+Enter")
-        msgs = [m for m in sent_messages(mobile_page) if m["type"] == "send"]
-        assert len(msgs) == 0
+        assert msgs[0]["text"] == "shortcut test"
 
 
 class TestAutoMode:
     def test_default_is_auto_mode(self, mobile_page):
-        assert mobile_page.locator("#btn-send").text_content() == "自动"
+        auto = mobile_page.locator('#send-mode-seg button[data-send-mode="auto"]')
+        assert "active" in (auto.get_attribute("class") or "").split()
+        assert auto.get_attribute("aria-checked") == "true"
+        # 发送按钮是动作，不随模式改字：模式只由分段控件表达
+        assert mobile_page.locator("#btn-send").text_content() == MOBILE_I18N["btn_send"]
+        assert mobile_page.locator("#send-mode-hint").text_content() == \
+            MOBILE_I18N["send_mode_hint_auto"]
 
     def test_toggle_to_manual(self, mobile_page):
-        mobile_page.locator("#mode-toggle").click()
-        assert mobile_page.locator("#btn-send").text_content() == "发送"
-        mobile_page.locator("#mode-toggle").click()
-        assert mobile_page.locator("#btn-send").text_content() == "自动"
+        manual = mobile_page.locator('#send-mode-seg button[data-send-mode="manual"]')
+        manual.click()
+        assert manual.get_attribute("aria-checked") == "true"
+        assert mobile_page.locator("#btn-send").text_content() == \
+            MOBILE_I18N["btn_send"]
+        assert mobile_page.locator("#send-mode-hint").text_content() == \
+            MOBILE_I18N["send_mode_hint_manual"]
+
+        mobile_page.locator('#send-mode-seg button[data-send-mode="auto"]').click()
+        assert mobile_page.locator("#send-mode-hint").text_content() == \
+            MOBILE_I18N["send_mode_hint_auto"]
+
+
+class TestSelectAll:
+    def test_select_all_covers_entire_textarea(self, mobile_page):
+        mobile_page.locator("#input-box").fill("第一行\n第二行")
+        assert mobile_page.locator("#btn-select-all").is_enabled()
+        mobile_page.locator("#btn-select-all").click()
+        selected = mobile_page.evaluate("""() => {
+            const box = document.getElementById('input-box');
+            return [box.selectionStart, box.selectionEnd, box.value.length];
+        }""")
+        assert selected == [0, 7, 7]
+
+    def test_select_all_disabled_when_empty(self, mobile_page):
+        assert mobile_page.locator("#btn-select-all").is_disabled()
+        mobile_page.locator("#input-box").fill("x")
+        assert mobile_page.locator("#btn-select-all").is_enabled()
+        mobile_page.locator("#btn-clear").click()
+        assert mobile_page.locator("#btn-select-all").is_disabled()
+
+
+class TestHistoryPanel:
+    _ROWS = [
+        {"id": 2, "text": "后来的一条", "chars": 5,
+         "created_at": "2026-11-16T10:31:00+08:00"},
+        {"id": 1, "text": "先前的长句", "chars": 6,
+         "created_at": "2026-11-15T09:02:00+08:00"},
+    ]
+
+    @staticmethod
+    def _mock_history(page, rows=None):
+        payload = {
+            "messages": rows if rows is not None else TestHistoryPanel._ROWS,
+            "stats": {"total": 2, "total_chars": 11, "devices": 1},
+            "limit": 30,
+            "offset": 0,
+        }
+        page.evaluate(
+            """(payload) => { window._pmFetchHistory = async () => payload; }""",
+            payload,
+        )
+
+    def test_history_button_opens_drawer_with_records(self, mobile_page):
+        self._mock_history(mobile_page)
+        mobile_page.locator("#btn-history").click()
+        mobile_page.wait_for_selector("#pm-history-sheet.open")
+        rows = mobile_page.locator(".pm-history-row")
+        assert rows.count() == 2
+        assert rows.first.locator(".pm-history-text").text_content() == "后来的一条"
+        assert "5 字" in rows.first.locator(".pm-history-meta").text_content()
+        stats = mobile_page.locator("#pm-history-sheet .pm-history-stats").text_content()
+        assert "2 条" in stats and "11 字" in stats
+
+    def test_history_drawer_empty_state(self, mobile_page):
+        self._mock_history(mobile_page, rows=[])
+        mobile_page.locator("#btn-history").click()
+        mobile_page.wait_for_selector("#pm-history-sheet.open")
+        assert mobile_page.locator("#pm-history-sheet .pm-history-empty").text_content() == \
+            MOBILE_I18N["history_empty"]
+
+    def test_restore_recent_history_fills_chat(self, mobile_page):
+        """打开页面时把最近记录按时间顺序铺回聊天区（最新在前 → 反过来追加）。"""
+        self._mock_history(mobile_page)
+        mobile_page.evaluate("() => restoreRecentHistory(window.chatManagerInstance)")
+        mobile_page.wait_for_function(
+            "() => document.querySelectorAll('.message').length === 2")
+        texts = mobile_page.locator(".message .msg-text").all_text_contents()
+        assert texts == ["先前的长句", "后来的一条"]
 
     def test_compositionend_triggers_auto_send(self, mobile_page):
         mobile_page.evaluate("""
@@ -519,15 +611,18 @@ class TestDisconnect:
 
 class TestChatList:
     def test_send_adds_message_to_chat(self, mobile_page):
-        mobile_page.locator("#mode-toggle").click()
+        _use_manual_mode(mobile_page)
         mobile_page.locator("#input-box").fill("chat msg")
         mobile_page.locator("#btn-send").click()
         msgs = mobile_page.locator(".message")
         assert msgs.count() == 1
-        assert msgs.first.text_content() == "chat msg"
+        assert msgs.first.locator(".msg-text").text_content() == "chat msg"
+        # meta 行：时间 + 非空白字符数，和 PC 历史库同一口径
+        meta = msgs.first.locator(".msg-meta").text_content()
+        assert re.search(r"\d{2}:\d{2} · 7 字$", meta), meta
 
     def test_long_press_appends_to_input(self, mobile_page):
-        mobile_page.locator("#mode-toggle").click()
+        _use_manual_mode(mobile_page)
         mobile_page.locator("#input-box").fill("press me")
         mobile_page.locator("#btn-send").click()
 
@@ -545,7 +640,7 @@ class TestChatList:
         assert mobile_page.locator("#btn-plus").is_hidden()
 
     def test_click_message_resend(self, mobile_page):
-        mobile_page.locator("#mode-toggle").click()
+        _use_manual_mode(mobile_page)
         mobile_page.locator("#input-box").fill("resend me")
         mobile_page.locator("#btn-send").click()
 
@@ -561,7 +656,7 @@ class TestChatList:
     def test_click_message_cancel_does_not_resend(self, mobile_page):
         """点「取消」不发，并且浮层自己收掉（不留半开的空框）。"""
         page = mobile_page
-        page.locator("#mode-toggle").click()
+        _use_manual_mode(page)
         page.locator("#input-box").fill("cancel me")
         page.locator("#btn-send").click()
         before = len([m for m in sent_messages(page) if m["type"] == "send"])
@@ -583,7 +678,7 @@ class TestChatList:
         page = mobile_page
         dialogs = []
         page.on("dialog", lambda d: (dialogs.append(d.message), d.dismiss()))
-        page.locator("#mode-toggle").click()
+        _use_manual_mode(page)
         page.locator("#input-box").fill("again")
         page.locator("#btn-send").click()
 
@@ -598,7 +693,7 @@ class TestChatList:
     def test_confirm_backdrop_click_cancels(self, mobile_page):
         """点浮层背景 = 取消（手指抖出去的那一下不该被算成「确定」）。"""
         page = mobile_page
-        page.locator("#mode-toggle").click()
+        _use_manual_mode(page)
         page.locator("#input-box").fill("backdrop")
         page.locator("#btn-send").click()
         before = len([m for m in sent_messages(page) if m["type"] == "send"])

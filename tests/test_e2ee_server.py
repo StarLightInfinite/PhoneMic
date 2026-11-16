@@ -202,16 +202,16 @@ def wait_snapshot(queue, predicate, timeout=5) -> dict:
 
 
 def next_event(queue, timeout=5) -> tuple:
-    """取下一个**业务**事件（跳过审批快照）。
+    """取下一个**业务**事件（跳过审批快照与设备信息）。
 
     审批快照是给界面的事件：每次登记、结算都推一份（结算后那份是空队列），
-    和"握手是否完成"无关。等 connect / preview 时必须跳过它们，否则会被
-    "面板该收起了"这种 UI 收尾事件绊住。
+    和"握手是否完成"无关。device_info 是 connect 之后随附的主界面补充信息。
+    等 connect / preview 时必须跳过它们，否则会被这类 UI 事件绊住。
     """
     deadline = time.time() + timeout
     while True:
         msg_type, text = queue.get(timeout=max(0.1, deadline - time.time()))
-        if msg_type != "approval_snapshot":
+        if msg_type not in ("approval_snapshot", "device_info"):
             return msg_type, text
 
 
@@ -339,7 +339,8 @@ class TestEncryptedMessageFlow:
 
         with ws_connect(ws_url(host, port, sc)) as ws:
             phone.handshake(ws)
-            queue.get(timeout=2)
+            assert queue.get(timeout=2)[0] == "connect"
+            assert queue.get(timeout=2)[0] == "device_info"
 
             ws.send(phone.encrypt({"type": "preview", "text": "secret hello"}))
 
@@ -353,7 +354,8 @@ class TestEncryptedMessageFlow:
 
         with ws_connect(ws_url(host, port, sc)) as ws:
             phone.handshake(ws)
-            queue.get(timeout=2)
+            assert queue.get(timeout=2)[0] == "connect"
+            assert queue.get(timeout=2)[0] == "device_info"
 
             ws.send(phone.encrypt({"type": "send", "text": "encrypted send"}))
 

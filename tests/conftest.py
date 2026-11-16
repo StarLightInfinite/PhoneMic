@@ -63,6 +63,7 @@ import base64
 import json
 import os
 import socket
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -83,6 +84,22 @@ import pytest
 # 用 setdefault 而非直接赋值：偶尔要肉眼看一眼界面时，先设 QT_QPA_PLATFORM=windows
 # 覆盖即可，这里不会把你的选择盖掉。
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+# 历史库同样隔离到临时目录：测试会真的写历史，不能污染用户当前 %LOCALAPPDATA%
+# 里的真实记录（PC 主界面和手机端都读同一个库）。这里只给路径，库文件由被测
+# 代码首次访问时创建。
+#
+# xdist 下每个 worker 用独立库文件：共享一份库时四个进程同时写会互相等锁，
+# 后跑的用例还可能读到前一个用例留下的统计值，变成「单独跑过、全量跑红」。
+_worker_tag = os.environ.get("PYTEST_XDIST_WORKER", "main")
+_test_history_db = os.path.join(
+    tempfile.gettempdir(), f"phonemic-test-history-{_worker_tag}.db")
+for _suffix in ("", "-wal", "-shm"):
+    try:
+        os.remove(_test_history_db + _suffix)
+    except OSError:
+        pass
+os.environ.setdefault("PHONEMIC_HISTORY_DB", _test_history_db)
 
 from nacl.bindings import crypto_scalarmult
 from nacl.public import PrivateKey, PublicKey, SealedBox

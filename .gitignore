@@ -220,3 +220,15 @@ __marimo__/
 .anthropic/
 .trae/
 /.*/
+
+# --- 本地开发产物 / 隐私数据（不应进入公开仓库） ---
+# 原型验证与截图：可能含真实内网 IP、临时隧道域名、二维码访问链接等现场数据
+/prototype/
+/shots/
+# 构建/打包中间产物与崩溃转储（体积大且可能含本机路径）
+nuitka-crash-report.xml
+*.old-running.exe
+# 编辑器/手动备份副本
+*.bak
+*.bak-*
+*.bak_*

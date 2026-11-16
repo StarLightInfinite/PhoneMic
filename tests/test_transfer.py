@@ -96,6 +96,26 @@ def _make(tmp_path, **kw):
     return q, fr, pr, rec
 
 
+async def _wait_for(predicate, timeout=3.0):
+    """轮询等待后台消费者完成，而不是赌固定 sleep。
+
+    写盘走 asyncio.to_thread，Windows 上线程冷启动可能超过 50ms；
+    固定等待会让本组用例偶发失败（首次跑 suite 时三例全红、单独复跑却正常）。
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while not predicate():
+        if loop.time() > deadline:
+            raise AssertionError("等待传输后台消费者超时")
+        await asyncio.sleep(0.01)
+
+
+async def _wait_file_end_ack(rec):
+    await _wait_for(lambda: any(
+        f.get("type") == "ack" and f.get("ref") == "file"
+        and f.get("a") == "end" for f in rec.frames))
+
+
 # ---------- 基本入队与消费 ----------
 
 def test_full_file_transfer_roundtrip(tmp_path):
@@ -110,7 +130,7 @@ def test_full_file_transfer_roundtrip(tmp_path):
         await q.enqueue("file", {"a": "data", "id": 1, "n": 0,
                                  "chunk": b"abcd"}, ws)
         await q.enqueue("file", {"a": "end", "id": 1}, ws)
-        await asyncio.sleep(0.05)          # 让后台消费者跑完
+        await _wait_file_end_ack(rec)
         await q.aclose()
         assert saved.get("size") == 4
         with open(saved["path"], "rb") as fh:
@@ -134,7 +154,7 @@ def test_sequential_order_preserved(tmp_path):
             await q.enqueue("file", {"a": "data", "id": 2, "n": i,
                                      "chunk": blk}, ws)
         await q.enqueue("file", {"a": "end", "id": 2}, ws)
-        await asyncio.sleep(0.05)
+        await _wait_file_end_ack(rec)
         await q.aclose()
         with open(saved["path"], "rb") as fh:
             assert fh.read() == b"112233"
@@ -232,7 +252,7 @@ def test_start_clears_cancel_mark(tmp_path):
         await q.enqueue("file", {"a": "data", "id": 4, "n": 0,
                                  "chunk": b"dddd"}, ws)
         await q.enqueue("file", {"a": "end", "id": 4}, ws)
-        await asyncio.sleep(0.05)
+        await _wait_file_end_ack(rec)
         await q.aclose()
         assert saved.get("size") == 4, "重新 start 后数据不应被当作残留块丢弃"
         assert ("file", 4) not in q._cancelled_ids

@@ -434,9 +434,11 @@ class TestMessageDispatch:
 
     @staticmethod
     def _drain_connect(queue):
-        """连接建立时会先入队一个 connect 事件，测试前消费掉。"""
+        """连接建立时会先入队 connect + device_info，测试前消费掉。"""
         msg_type, _ = queue.get(timeout=2)
         assert msg_type == "connect"
+        msg_type, _ = queue.get(timeout=2)
+        assert msg_type == "device_info"
 
     @staticmethod
     def _recv_type(ws, phone, want_type, timeout=2.0):

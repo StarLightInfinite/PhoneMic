@@ -172,8 +172,9 @@ def main():
     if selected_mac:
         sm.set("last_network_mac", selected_mac)
 
-    # 3. 查找端口
-    actual_port = find_free_port(start_port=12000, host=selected_ip)
+    # 3. 查找端口（从用户保存的端口开始；被占用时向后顺延，与旧行为一致）
+    saved_port = sm.get("server_port", 12000)
+    actual_port = find_free_port(start_port=saved_port, host=selected_ip)
     if actual_port is None:
         QMessageBox.critical(None, i18n.tr("error.title"), i18n.tr("error.no_free_port"))
         sys.exit(1)
@@ -276,6 +277,53 @@ def main():
     # manager 内部自己起后台线程，这里直接接上即可。
     dashboard.set_restart_service_callback(tunnel_mgr.restart_service)
 
+    def change_port(new_port: int):
+        """主界面「应用端口」：换监听端口并重启当前模式的服务。
+
+        与 restart_network 同一套打法：先探测占用（不满足直接拒绝，不动服务），
+        LAN 走同步重启 + 就绪探测，失败回滚旧端口；CF 交给 tunnel_mgr 后台
+        重建隧道，tunnel_url / tunnel_error 事件负责收尾。成功后持久化，
+        下次启动从新端口开始找。
+        """
+        nonlocal actual_port
+        old_port = actual_port
+        mode = dashboard.get_mode()
+        host = "127.0.0.1" if mode == TunnelMode.CLOUDFLARE else selected_ip
+        if find_free_port(start_port=new_port, max_tries=1, host=host) is None:
+            QMessageBox.warning(dashboard, i18n.tr("error.title"),
+                                i18n.tr("dashboard.port_in_use", port=new_port))
+            dashboard.on_port_change_failed(old_port)
+            return
+
+        actual_port = new_port
+        tunnel_mgr.set_port(new_port)
+        dashboard.update_network(selected_ip, new_port)
+        sm.set("server_port", new_port)
+
+        if mode == TunnelMode.LAN:
+            # 先通知已连接的手机重新扫码，再断旧端口——否则手机会对着旧地址
+            # 自动重连到天荒地老。
+            request_client_rescan()
+            restart_server(selected_ip, new_port, bridge)
+            if not wait_for_server(selected_ip, new_port, get_secret_path()):
+                actual_port = old_port
+                tunnel_mgr.set_port(old_port)
+                sm.set("server_port", old_port)
+                restart_server(selected_ip, old_port, bridge)
+                wait_for_server(selected_ip, old_port, get_secret_path())
+                dashboard.update_network(selected_ip, old_port)
+                QMessageBox.critical(dashboard, i18n.tr("error.title"),
+                                     i18n.tr("dashboard.port_change_fail", port=new_port))
+                dashboard.on_port_change_failed(old_port)
+            else:
+                dashboard.on_switch_completed()
+        else:
+            # CF：restart_service 会按新端口重启本地服务并重建隧道（换新域名），
+            # 忙碌状态由 tunnel_url / tunnel_error 事件解除。
+            tunnel_mgr.restart_service()
+
+    dashboard.set_port_change_callback(change_port)
+
     # 安全通道
     dashboard.set_secure_channel(secure_channel)
 
@@ -356,6 +404,12 @@ def main():
             algo = payload if isinstance(payload, str) else None
             dashboard.update_connection_status(True, algo)
             tray.update_connection_status(True)
+        elif event_type == "device_info":
+            # 设备卡片：当前连接（IP/UA/算法/起连时刻）+ 历史设备数
+            dashboard.update_device_info(payload)
+        elif event_type == "message_logged":
+            # 手机端已把最终文本写入 SQLite，PC 历史卡片同步插一条
+            dashboard.add_history_record(payload)
         elif event_type == "approval_snapshot":
             # TOFU 审批队列的全量快照：payload = {"items": [{"id","pin","ip","remaining"}, ...],
             # "pending": N}，排队最久的在前。界面只显示 items[0]；空列表即收起面板——

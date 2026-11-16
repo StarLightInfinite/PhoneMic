@@ -5,6 +5,7 @@ Dashboard 模式切换 UI 单元测试。
 from unittest.mock import patch, MagicMock
 
 import pytest
+from PySide6.QtWidgets import QLabel
 
 from phonemic.gui.dashboard import Dashboard
 from phonemic.tunnel.mode import TunnelMode
@@ -105,14 +106,16 @@ class TestInputModeMenu:
         assert dashboard.act_input_type.isChecked() is False
         assert dashboard.act_input_direct.isChecked() is False
 
-    def test_menu_title_present(self, dashboard):
-        titles = [a.text() for a in dashboard.menuBar().actions()]
-        assert dashboard.i18n.tr("dashboard.menu_input_mode") in titles
+    def test_mode_choices_are_always_visible(self, dashboard):
+        """三个上屏方式以常显分段按钮出现，不用先点开下拉。"""
+        assert set(dashboard._seg_input) == {"paste", "type", "direct"}
+        for btn in dashboard._seg_input.values():
+            assert btn.isVisibleTo(dashboard)
+            assert btn.isCheckable()
 
-    def test_menu_order_right_after_network(self, dashboard):
-        titles = [a.text() for a in dashboard.menuBar().actions()]
-        assert titles.index(dashboard.i18n.tr("dashboard.menu_input_mode")) == \
-            titles.index(dashboard.i18n.tr("dashboard.menu_network")) + 1
+    def test_mode_buttons_are_one_exclusive_group(self, dashboard):
+        assert dashboard._input_group.exclusive() is True
+        assert len(dashboard._input_group.buttons()) == 3
 
     def test_clicking_type_persists_config(self, dashboard):
         dashboard._on_input_mode_clicked("type")
@@ -192,7 +195,7 @@ class TestTunnelUrlUpdate:
     def test_update_tunnel_url_updates_qr(self, dashboard):
         dashboard._on_mode_clicked(TunnelMode.CLOUDFLARE)
         dashboard.update_tunnel_url("https://test.trycloudflare.com")
-        assert "test.trycloudflare.com" in dashboard.ip_label.toPlainText()
+        assert "test.trycloudflare.com" in dashboard.ip_label.text()
 
     def test_update_tunnel_url_none_shows_disconnected(self, dashboard):
         dashboard._on_mode_clicked(TunnelMode.CLOUDFLARE)
@@ -201,32 +204,77 @@ class TestTunnelUrlUpdate:
 
     def test_update_tunnel_url_not_applied_in_lan_mode(self, dashboard):
         dashboard.update_tunnel_url("https://test.trycloudflare.com")
-        assert "test.trycloudflare.com" not in dashboard.ip_label.toPlainText()
+        assert "test.trycloudflare.com" not in dashboard.ip_label.text()
 
 
 class TestUrlDisplay:
-    """地址栏用 QLabel/QLineEdit(都可以，显示出文本就行)：居中、可用鼠标选中复制。"""
+    """地址栏用只读 QLineEdit：从开头显示 URL，可选中复制，旁边有「复制链接」。"""
 
     def test_url_label_shows_lan_url(self, dashboard):
-        assert "192.168.1.100:12000" in dashboard.ip_label.toPlainText()
+        assert "192.168.1.100:12000" in dashboard.ip_label.text()
 
     def test_url_label_updates_after_tunnel_ready(self, dashboard):
         dashboard._on_mode_clicked(TunnelMode.CLOUDFLARE)
         dashboard.update_tunnel_url("https://example.trycloudflare.com")
-        assert "example.trycloudflare.com" in dashboard.ip_label.toPlainText()
+        assert "example.trycloudflare.com" in dashboard.ip_label.text()
 
-    def test_url_label_is_centered(self, dashboard):
-        """对齐是控件级属性，setText 后依然保持居中。"""
+    def test_url_field_left_aligned(self, dashboard):
+        """左对齐 + 光标在开头：长域名先看到协议和域名，而不是尾巴。"""
         from PySide6.QtCore import Qt
-        assert dashboard.ip_label.alignment() == Qt.AlignCenter
+        assert dashboard.ip_label.alignment() & Qt.AlignLeft
+        assert dashboard.ip_label.cursorPosition() == 0
 
-    def test_url_label_keeps_centering_after_updates(self, dashboard):
-        """多次更新 URL 后仍居中（不像 QTextEdit 那样会被重置）。"""
+    def test_url_field_left_aligned_after_updates(self, dashboard):
         from PySide6.QtCore import Qt
         dashboard._set_ip_text("https://a.trycloudflare.com")
         dashboard._on_mode_clicked(TunnelMode.CLOUDFLARE)
         dashboard._set_ip_text("https://b.trycloudflare.com")
-        assert dashboard.ip_label.alignment() == Qt.AlignCenter
+        assert dashboard.ip_label.alignment() & Qt.AlignLeft
+        assert dashboard.ip_label.cursorPosition() == 0
+
+    def test_url_field_read_only(self, dashboard):
+        assert dashboard.ip_label.isReadOnly() is True
+
+    def test_copy_button_copies_exact_url(self, dashboard):
+        from PySide6.QtWidgets import QApplication
+        assert dashboard.copy_btn.isEnabled() is True
+        dashboard.copy_btn.click()
+        assert QApplication.clipboard().text() == "http://192.168.1.100:12000"
+
+    def test_copy_disabled_for_non_url_status(self, dashboard):
+        """状态文案（切换中 / 隧道断开）不是 URL，复制按钮必须置灰。"""
+        dashboard._set_ip_text("Cloudflare: 已断开")
+        assert dashboard.copy_btn.isEnabled() is False
+        dashboard._copy_url()
+        assert dashboard._copy_text == ""
+
+    def test_copy_restores_label(self, dashboard):
+        dashboard.copy_btn.click()
+        assert dashboard.copy_btn.text() == dashboard.i18n.tr("dashboard.copied")
+        dashboard._restore_copy_btn()
+        assert dashboard.copy_btn.text() == dashboard.i18n.tr("dashboard.copy_url")
+
+
+class TestQrCode:
+    """二维码以 2× 设备像素绘制，模块纯黑白，贴边不糊。"""
+
+    def test_uses_2x_device_pixels(self, qapp):
+        # qapp：QPixmap 必须先有 QApplication；单独跑本类时不能依赖别的用例先建 app
+        from phonemic.gui.dashboard import make_qr_pixmap
+        pix = make_qr_pixmap("http://192.168.1.100:12000", 210)
+        assert pix.devicePixelRatio() == 2.0
+        assert pix.width() >= 380 and pix.height() >= 380
+
+    def test_modules_are_pure_black_white(self, qapp):
+        from phonemic.gui.dashboard import make_qr_pixmap
+        pix = make_qr_pixmap("http://192.168.1.100:12000", 210)
+        img = pix.toImage()
+        colors = set()
+        for y in range(0, img.height(), max(1, img.height() // 30)):
+            for x in range(0, img.width(), max(1, img.width() // 30)):
+                c = img.pixelColor(x, y)
+                colors.add((c.red(), c.green(), c.blue()))
+        assert colors <= {(0, 0, 0), (255, 255, 255)}
 
 
 class TestAuthModeRestriction:
@@ -744,9 +792,11 @@ class TestApprovalCountdown:
 class TestRestartServiceMenu:
     """「网络」菜单底部的「重启服务」：两种模式都可用，与模式切换共用忙碌状态。"""
 
-    def test_is_last_item_in_network_menu(self, dashboard):
-        items = [a for a in dashboard.network_menu.actions() if not a.isSeparator()]
-        assert items[-1] is dashboard.act_restart_service
+    def test_restart_button_is_visible_control(self, dashboard):
+        """「重启服务」不再藏在网络下拉里，而是控制卡片底部的常显按钮。"""
+        assert dashboard.restart_service_btn.isVisibleTo(dashboard)
+        assert dashboard.restart_service_btn.text() == \
+            dashboard.i18n.tr("dashboard.menu_restart_service")
 
     def test_enabled_in_lan_mode(self, dashboard):
         assert dashboard.get_mode() == TunnelMode.LAN
@@ -768,8 +818,8 @@ class TestRestartServiceMenu:
         dashboard._tunnel_url = "https://stale.trycloudflare.com"
         dashboard._on_restart_service()
         assert dashboard._tunnel_url is None
-        assert "stale.trycloudflare.com" not in dashboard.ip_label.toPlainText()
-        assert dashboard.ip_label.toPlainText() == dashboard.i18n.tr("dashboard.restarting")
+        assert "stale.trycloudflare.com" not in dashboard.ip_label.text()
+        assert dashboard.ip_label.text() == dashboard.i18n.tr("dashboard.restarting")
 
     def test_busy_while_switching_then_re_enabled(self, dashboard):
         dashboard._on_mode_clicked(TunnelMode.CLOUDFLARE)
@@ -861,28 +911,21 @@ class TestTunnelReachabilityStatus:
 class TestDictionaryMenu:
     """「程序」菜单里的词典入口：文案存在、能打开对话框、且 parent 是主窗口。"""
 
-    @staticmethod
-    def _program_menu_labels(dashboard):
-        """返回「程序」子菜单各项的文案。
+    def test_tool_links_are_always_visible(self, dashboard):
+        """程序/帮助入口常显在左下角，不用先点开菜单。"""
+        for key in (
+            "dashboard.menu_action",
+            "dashboard.menu_command",
+            "dashboard.menu_dictionary",
+            "dashboard.menu_help_guide",
+            "dashboard.menu_about",
+        ):
+            assert dashboard._tool_links[key].isVisibleTo(dashboard)
 
-        只在同一个作用域内读完整条链，且只把字符串带出去。
-        PySide6（libshiboken）里 QAction / QMenu 的包装对象一旦被回收，
-        再把 menu() 的结果传到别处就会抛 "Internal C++ object already deleted"。
-        """
-        actions = dashboard.menuBar().actions()
-        for action in actions:
-            if action.text() == dashboard.i18n.tr("dashboard.menu_program"):
-                return [item.text() for item in action.menu().actions()]
-        raise AssertionError("找不到「程序」菜单")
-
-    def test_menu_action_present(self, dashboard):
-        labels = self._program_menu_labels(dashboard)
-        assert dashboard.i18n.tr("dashboard.menu_dictionary") in labels
-
-    def test_menu_action_sits_next_to_commands(self, dashboard):
-        labels = self._program_menu_labels(dashboard)
-        assert labels.index(dashboard.i18n.tr("dashboard.menu_dictionary")) == \
-            labels.index(dashboard.i18n.tr("dashboard.menu_command")) + 1
+    def test_dictionary_link_sits_next_to_commands(self, dashboard):
+        links = list(dashboard._tool_links.values())
+        assert links.index(dashboard._tool_links["dashboard.menu_dictionary"]) == \
+            links.index(dashboard._tool_links["dashboard.menu_command"]) + 1
 
     def test_open_dictionary_dialog_passes_self(self, dashboard, mocker):
         seen = []
@@ -899,3 +942,105 @@ class TestDictionaryMenu:
         dashboard._open_dictionary_dialog()
 
         assert seen == [dashboard]
+
+
+class TestDeviceCard:
+    def test_connected_device_shows_kind_ip_and_count(self, dashboard):
+        dashboard.update_device_info({
+            "connected": True,
+            "ip": "10.0.2.88",
+            "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) "
+                          "Version/18.0 Mobile/15E148 Safari/604.1",
+            "algorithm": "xchacha20",
+            "since": "2026-11-16T10:20:00+08:00",
+            "devices": 3,
+        })
+        assert dashboard._device_count_label.text() == \
+            dashboard.i18n.tr("dashboard.device_online", n=1)
+        assert "iPhone" in dashboard._device_name_label.text()
+        assert "Safari" in dashboard._device_name_label.text()
+        assert "10.0.2.88" in dashboard._device_meta_label.text()
+        assert "XChaCha20" in dashboard._device_meta_label.text()
+        assert dashboard._device_total_label.text() == \
+            dashboard.i18n.tr("dashboard.device_total", n=3)
+
+    def test_disconnect_falls_back_to_empty_state(self, dashboard):
+        dashboard.update_device_info({"connected": False, "devices": 3})
+        assert dashboard._device_count_label.text() == \
+            dashboard.i18n.tr("dashboard.device_offline")
+        assert dashboard._device_name_label.text() == \
+            dashboard.i18n.tr("dashboard.device_none")
+
+
+class TestHistoryCard:
+    class _FakeStore:
+        @staticmethod
+        def recent_messages(limit=200):
+            return [
+                {"id": 2, "created_at": "2026-11-16T10:32:00+08:00",
+                 "text": "最新的一条", "chars": 5},
+                {"id": 1, "created_at": "2026-11-15T09:02:00+08:00",
+                 "text": "更早的一条", "chars": 5},
+            ]
+
+        @staticmethod
+        def stats():
+            return {"total": 2, "total_chars": 10, "devices": 1}
+
+    @staticmethod
+    def _row_texts(dashboard):
+        texts = []
+        for i in range(dashboard._history_layout.count()):
+            widget = dashboard._history_layout.itemAt(i).widget()
+            if widget is None or widget is dashboard._history_empty:
+                continue
+            texts.extend(label.text() for label in widget.findChildren(QLabel))
+        return texts
+
+    def test_load_history_renders_records_and_stats(self, dashboard, monkeypatch):
+        monkeypatch.setattr(
+            "phonemic.gui.dashboard.get_history_store",
+            lambda: self._FakeStore(),
+        )
+        dashboard._load_history()
+
+        assert dashboard._history_stats_label.text() == \
+            dashboard.i18n.tr("dashboard.history_stats", total=2, chars=10)
+        texts = self._row_texts(dashboard)
+        assert "最新的一条" in texts
+        assert "更早的一条" in texts
+        # 最新在前，用户打开窗口先看到刚才说的话
+        assert texts.index("最新的一条") < texts.index("更早的一条")
+
+    def test_new_message_prepends_and_updates_stats(self, dashboard, monkeypatch):
+        monkeypatch.setattr(
+            "phonemic.gui.dashboard.get_history_store",
+            lambda: self._FakeStore(),
+        )
+        dashboard._load_history()
+        dashboard.add_history_record({
+            "id": 3, "created_at": "2026-11-16T10:35:00+08:00",
+            "text": "刚刚说的话", "chars": 5,
+        })
+
+        assert dashboard._history_stats_label.text() == \
+            dashboard.i18n.tr("dashboard.history_stats", total=3, chars=15)
+        texts = self._row_texts(dashboard)
+        assert texts.index("刚刚说的话") < texts.index("最新的一条")
+
+    def test_empty_history_shows_empty_state(self, dashboard, monkeypatch):
+        class _EmptyStore:
+            @staticmethod
+            def recent_messages(limit=200):
+                return []
+
+            @staticmethod
+            def stats():
+                return {"total": 0, "total_chars": 0, "devices": 0}
+
+        monkeypatch.setattr(
+            "phonemic.gui.dashboard.get_history_store",
+            lambda: _EmptyStore(),
+        )
+        dashboard._load_history()
+        assert dashboard._history_empty.isVisibleTo(dashboard)

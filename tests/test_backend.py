@@ -22,6 +22,7 @@ from hashlib import blake2b
 
 from phonemic.bridge_queue import QueueEventBridge
 from phonemic.server import api as api_mod
+from phonemic.server.history import HistoryStore
 from phonemic.server.api import (
     set_bridge, start_server, stop_server, restart_server,
     push_config, send_to_phone, set_secure_channel, request_client_rescan,
@@ -73,10 +74,18 @@ def authenticate_and_verify(ws, phone):
 
 
 def consume_connect(queue, algo="xsalsa20"):
-    """消费 connect 事件，并断言事件携带协商出的算法。"""
+    """消费 connect 及其后的 device_info，并断言协商出的算法。
+
+    认证成功会连续推两条：connect（连上了）与 device_info（谁连上来的）。
+    设备卡是新增的补充事件，这里一并消费，保持旧用例对「下一条业务事件」的预期。
+    """
     msg_type, payload = queue.get(timeout=2)
     assert msg_type == "connect"
     assert payload == algo
+    device_type, device = queue.get(timeout=2)
+    assert device_type == "device_info", device_type
+    assert device["connected"] is True
+    return device
 
 
 def consume_initial_config(ws, phone):
@@ -85,6 +94,16 @@ def consume_initial_config(ws, phone):
     inner = phone.decrypt(msg)
     assert inner["type"] == "config"
     assert "mobile_max_records" in inner
+
+
+def consume_disconnect(queue):
+    """消费断连时的 disconnect + device_info（离线快照）两条事件。"""
+    event, _ = queue.get(timeout=2)
+    assert event == "disconnect"
+    event, payload = queue.get(timeout=2)
+    assert event == "device_info"
+    assert payload["connected"] is False
+    return payload
 
 
 # ---------- Fixtures ----------
@@ -186,9 +205,77 @@ def test_connection_lifecycle(secure_server):
         authenticate(ws, phone)
         event, _ = queue.get(timeout=2)
         assert event == "connect"
+        assert queue.get(timeout=2)[0] == "device_info"
 
     event, _ = queue.get(timeout=2)
     assert event == "disconnect"
+
+
+def test_device_info_follows_connect(secure_server, tmp_path, monkeypatch):
+    """认证后的事件顺序：connect → device_info；设备卡片拿得到在线状态和台数。"""
+    store = HistoryStore(str(tmp_path / "history.db"))
+    monkeypatch.setattr(api_mod, "get_history_store", lambda: store)
+    host, port, queue, sc = secure_server
+    phone = PhoneSimulator(sc.get_public_key_b64())
+
+    try:
+        with ws_connect(ws_url(host, port, sc)) as ws:
+            authenticate(ws, phone)
+            event, algo = queue.get(timeout=2)
+            assert event == "connect"
+            event, payload = queue.get(timeout=2)
+            assert event == "device_info"
+            assert payload["connected"] is True
+            assert payload["devices"] == 1
+            assert payload["ip"] == "127.0.0.1"
+            assert payload["algorithm"] == algo
+            assert payload["since"]
+        # 断开后设备卡片收到离线快照（并等它落完再关库，避免收尾噪声）
+        assert queue.get(timeout=2)[0] == "disconnect"
+        event, payload = queue.get(timeout=2)
+        assert event == "device_info"
+        assert payload["connected"] is False
+    finally:
+        store.close()
+
+
+def test_send_is_recorded_in_history(secure_server, tmp_path, monkeypatch):
+    """最终发送的文本落库、preview 不落库，且手机端历史接口能立刻读到。"""
+    store = HistoryStore(str(tmp_path / "history.db"))
+    monkeypatch.setattr(api_mod, "get_history_store", lambda: store)
+    host, port, queue, sc = secure_server
+    phone = PhoneSimulator(sc.get_public_key_b64())
+
+    try:
+        with ws_connect(ws_url(host, port, sc)) as ws:
+            authenticate(ws, phone)
+            consume_connect(queue)
+            consume_initial_config(ws, phone)
+
+            ws.send(phone.encrypt({"type": "preview", "text": "你好 世"}))
+            assert queue.get(timeout=2)[0] == "preview"
+
+            ws.send(phone.encrypt({"type": "send", "text": "你好 世界"}))
+            assert queue.get(timeout=2) == ("send", "你好 世界")
+            event, record = queue.get(timeout=2)
+            assert event == "message_logged"
+            assert record["text"] == "你好 世界"
+            assert record["chars"] == 4          # 非空白字符：空格不算
+
+            resp = urllib.request.urlopen(
+                http_url(host, port, sc, "/api/history?limit=10&offset=0"),
+                timeout=2,
+            )
+            assert resp.headers["Cache-Control"] == "no-store"
+            data = json.loads(resp.read())
+            assert [m["text"] for m in data["messages"]] == ["你好 世界"]
+            assert data["messages"][0]["chars"] == 4
+            assert data["stats"] == {"total": 1, "total_chars": 4, "devices": 1}
+            assert (data["limit"], data["offset"]) == (10, 0)
+        assert queue.get(timeout=2)[0] == "disconnect"
+        assert queue.get(timeout=2)[0] == "device_info"
+    finally:
+        store.close()
 
 
 def test_only_one_active_connection(secure_server):
@@ -200,6 +287,7 @@ def test_only_one_active_connection(secure_server):
     authenticate(ws1, phone)
     event, _ = queue.get(timeout=2)
     assert event == "connect"
+    assert queue.get(timeout=2)[0] == "device_info"
     ws1.recv(timeout=2)  # config
 
     ws2 = ws_connect(ws_url(host, port, sc))
@@ -207,11 +295,12 @@ def test_only_one_active_connection(secure_server):
     authenticate(ws2, phone)
 
     events = []
-    for _ in range(2):
+    for _ in range(3):
         event, _ = queue.get(timeout=2)
         events.append(event)
     assert "disconnect" in events
     assert "connect" in events
+    assert "device_info" in events
 
     ws1.close()
     ws2.close()
@@ -391,6 +480,7 @@ def test_full_e2e_flow(secure_server):
         # 2. 握手走完才有 connect 事件（认证失败发生在注册之前）
         event, _ = queue.get(timeout=2)
         assert event == "connect"
+        assert queue.get(timeout=2)[0] == "device_info"
 
         # 3. 接收并解密 config
         config_inner = phone.decrypt(ws.recv(timeout=2))
@@ -467,8 +557,7 @@ def test_reconnection_cycle(secure_server):
         assert text == "first"
 
     # 断连事件
-    event, _ = queue.get(timeout=2)
-    assert event == "disconnect"
+    consume_disconnect(queue)
 
     # ---- 第二次连接（重连）----
     with ws_connect(ws_url(host, port, sc)) as ws2:
@@ -480,6 +569,7 @@ def test_reconnection_cycle(secure_server):
         msg_type, text = queue.get(timeout=2)
         assert msg_type == "send"
         assert text == "second"
+        assert queue.get(timeout=2)[0] == "message_logged"
 
     event, _ = queue.get(timeout=2)
     assert event == "disconnect"
@@ -503,8 +593,7 @@ def test_rapid_reconnect(secure_server):
             assert msg_type == "preview"
             assert text == f"cycle {i}"
 
-        event, _ = queue.get(timeout=2)
-        assert event == "disconnect"
+        consume_disconnect(queue)
 
 
 # ---------- 测试 HTTP 路由（加密模式带 /{secret} 前缀）----------
@@ -698,6 +787,9 @@ def test_real_server_with_websocket_client():
             for orig_type, orig_text in test_msgs:
                 ws.send(phone.encrypt({"type": orig_type, "text": orig_text}))
                 msg_type, text = queue.get(timeout=2)
+                if msg_type == "message_logged":
+                    # send 之后紧跟一条历史落库通知；业务事件已在上一条里
+                    msg_type, text = queue.get(timeout=2)
                 assert msg_type == orig_type
                 assert text == orig_text
     finally:
@@ -705,6 +797,8 @@ def test_real_server_with_websocket_client():
         set_secure_channel(None)
 
     msg_type, _ = queue.get(timeout=2)
+    if msg_type == "message_logged":
+        msg_type, _ = queue.get(timeout=2)
     assert msg_type == "disconnect"
 
 
