@@ -524,9 +524,7 @@ PhoneMic 已有完整的命令系统（`commands_manager.py`），用户已能�
 
 ## 概念图
 
-- 快捷按钮面板：[concept-shortcut-buttons.jpg](computer://d:\code\PhoneMic\docs\concept-shortcut-buttons.jpg)
-
-- 图片传输界面：[concept-image-transfer.jpg](computer://d:\code\PhoneMic\docs\concept-image-transfer.jpg)
+早期设计曾绘制过两张概念图（快捷按钮面板、图片传输界面），均为开发过程中的临时草图，未随仓库发布。
 
 > 注意：概念图为早期设计，与最终确定的附件面板方案有出入，仅供参考布局思路。
 
