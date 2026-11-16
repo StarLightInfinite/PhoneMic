@@ -1,0 +1,38 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    name: pytest (Windows / Python 3.13)
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Set up Python 3.13
+        run: uv python install 3.13
+
+      # 项目硬依赖 pywin32 / pyautogui / win32gui，只能在 Windows runner 上运行。
+      # 默认装 dev 组（pytest 等）；uv.lock 保证可复现。
+      - name: Install dependencies
+        run: uv sync --frozen --all-groups
+
+      # 手机端用例用真实 Chromium 渲染 mobile.html。
+      - name: Install Playwright Chromium
+        run: uv run playwright install chromium
+
+      # conftest.py 已把 QT_QPA_PLATFORM 设为 offscreen，无需真实显示器。
+      - name: Run full test suite
+        run: uv run pytest
