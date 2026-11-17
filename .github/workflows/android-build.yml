@@ -28,8 +28,13 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # v3 默认会装 legacy 的 tools 包，但 Google 已从 SDK 仓库下架它；
+      # 新版 cmdline-tools 下 sdkmanager 找不到 tools 会直接 exit 1（编译还没开始就挂）。
+      # 显式只要 platform-tools，platform/build-tools 由 AGP 构建时按需自动拉取。
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       # AGP 8.5.2 需要 Gradle 8.7+；用 setup-gradle 拉版本，仓库里无需
       # 提交体积大且易腐坏的 gradle-wrapper.jar。
