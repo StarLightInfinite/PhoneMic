@@ -5376,8 +5376,11 @@
         uiController.onConnectionChange(false, t('status_connecting_text'), 'loading');
         wsClient.connect();
         chatManager.scrollToBottom();
-        // 页面一打开就把最近的历史铺回聊天区，随后新消息继续追加（不重复）
-        restoreRecentHistory(chatManager);
+        // 历史改为按需查看：打开页面时不再把旧记录铺回聊天区。
+        // 旧行为会让 syncEmpty() 误判为"有消息"，从而隐藏键盘/触控板/鼠标/文件
+        // 这一排交互选择卡片，用户一进来就被迫看历史。现在点底部"历史"按钮
+        // 才在抽屉里读取（openHistory → fetchHistory），进来即是可交互空态。
+        // restoreRecentHistory() 保留为可选工具，默认不再调用。
     };
 </script>
 

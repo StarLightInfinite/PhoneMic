@@ -496,13 +496,25 @@ class TestHistoryPanel:
             MOBILE_I18N["history_empty"]
 
     def test_restore_recent_history_fills_chat(self, mobile_page):
-        """打开页面时把最近记录按时间顺序铺回聊天区（最新在前 → 反过来追加）。"""
+        """restoreRecentHistory 作为可选工具：显式调用时仍能按时间顺序铺回聊天区。"""
         self._mock_history(mobile_page)
         mobile_page.evaluate("() => restoreRecentHistory(window.chatManagerInstance)")
         mobile_page.wait_for_function(
             "() => document.querySelectorAll('.message').length === 2")
         texts = mobile_page.locator(".message .msg-text").all_text_contents()
         assert texts == ["先前的长句", "后来的一条"]
+
+    def test_onload_does_not_auto_restore_history(self, mobile_page):
+        """打开页面默认不铺历史：留出空态，让用户先看到可点的交互选择卡片。
+
+        回归护栏：早期 onload 调用 restoreRecentHistory，历史一铺满 syncEmpty()
+        就把键盘/触控板/鼠标/文件隐藏，用户被迫先看历史。历史改为按需（点
+        "历史"按钮的抽屉）后，聊天区必须保持空、空态引导必须可见。
+        """
+        # 即便服务端有历史数据，onload 已执行完毕，聊天区也不该被铺满
+        assert mobile_page.locator("#chat-list .message").count() == 0
+        assert mobile_page.locator("#pm-empty").is_visible()
+        assert mobile_page.locator("#pm-empty .pm-row").count() >= 1
 
     def test_compositionend_triggers_auto_send(self, mobile_page):
         mobile_page.evaluate("""

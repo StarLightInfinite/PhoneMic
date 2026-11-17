@@ -21,6 +21,7 @@
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize|keyboardHidden|uiMode"
             android:exported="true"
+            android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -28,7 +29,12 @@
             </intent-filter>
         </activity>
 
-        <!-- ZXing 4.3.0 库自身已声明 CaptureActivity 及 exported，不重复声明：
-             重复声明会与 library manifest 合并冲突。 -->
+        <!-- 竖屏扫码：继承 ZXing 的 CaptureActivity，仅本 App 的子类声明 portrait。
+             库自身声明的是 com.journeyapps.barcodescanner.CaptureActivity（类名不同，
+             不冲突）；配合 setOrientationLocked(false) 才能真正锁竖屏。 -->
+        <activity
+            android:name=".PortraitCaptureActivity"
+            android:screenOrientation="portrait"
+            android:windowSoftInputMode="stateAlwaysHidden" />
     </application>
 </manifest>

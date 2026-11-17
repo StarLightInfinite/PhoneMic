@@ -3,6 +3,10 @@
     <string name="app_name">PhoneMic</string>
     <string name="status_discovering">正在查找电脑…</string>
     <string name="status_loading">正在打开 PhoneMic…</string>
+    <string name="status_not_found">还没有找到电脑</string>
+    <string name="guide_hint">确认电脑上的 PhoneMic 已开启。外网或自动发现失败时，可扫码连接。</string>
+    <string name="btn_scan">扫码连接电脑</string>
+    <string name="btn_retry">重新查找</string>
     <string name="scan_prompt">请扫描电脑主界面上的二维码</string>
     <string name="invalid_qr">二维码不是有效的 PhoneMic 地址</string>
     <string name="choose_file">选择文件</string>

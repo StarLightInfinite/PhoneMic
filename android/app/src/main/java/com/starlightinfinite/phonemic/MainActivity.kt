@@ -23,6 +23,7 @@ import com.google.zxing.integration.android.IntentResult
  */
 class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
+    private lateinit var connectGuide: View
     private lateinit var statusText: TextView
     private var fileCallback: ValueCallback<Array<Uri>>? = null
 
@@ -34,7 +35,11 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         webView = findViewById(R.id.webview)
+        connectGuide = findViewById(R.id.connect_guide)
         statusText = findViewById(R.id.status)
+        // 扫码改为按需：只有用户主动点按钮才拉起，不再自动弹扫码界面。
+        findViewById<View>(R.id.btn_scan).setOnClickListener { startScan() }
+        findViewById<View>(R.id.btn_retry).setOnClickListener { connect() }
         setupWebView()
         connect()
     }
@@ -77,27 +82,41 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** 启动/重连：先 WLAN 自动发现，失败退缓存，再退扫一扫。 */
+    /** 启动/重连：先 WLAN 自动发现，失败退缓存；两者都没有才显示扫码引导。
+     * 关键：不再自动弹扫码——扫一扫由用户按需主动触发。 */
     private fun connect() {
-        statusText.visibility = View.VISIBLE
-        statusText.text = getString(R.string.status_discovering)
+        showGuide(R.string.status_discovering)
         Discovery.discover(this) { found ->
             runOnUiThread {
                 val url = found ?: UrlStore.get(this)
-                if (url.isNullOrBlank()) startScan() else load(url)
+                if (url.isNullOrBlank()) {
+                    // 发现失败且无缓存：停在引导页，等用户自己决定何时扫码
+                    showGuide(R.string.status_not_found)
+                } else {
+                    load(url)
+                }
             }
         }
     }
 
+    /** 未连接时的引导页：文案随状态更新，扫码/重试按钮始终可见。 */
+    private fun showGuide(statusRes: Int) {
+        statusText.text = getString(statusRes)
+        connectGuide.visibility = View.VISIBLE
+    }
+
     private fun load(url: String) {
         UrlStore.save(this, url)
-        statusText.visibility = View.GONE
+        connectGuide.visibility = View.GONE
         webView.loadUrl(url)
     }
 
-    /** 外网 Cloudflare / 发现失败时用：扫 PC 主界面的二维码。 */
+    /** 外网 Cloudflare / 发现失败时用：扫 PC 主界面的二维码。
+     * 强制竖屏：指定本 App 的竖屏 Activity，并关闭库的「按当前设备方向锁定」。 */
     private fun startScan() {
         IntentIntegrator(this).apply {
+            setCaptureActivity(PortraitCaptureActivity::class.java)
+            setOrientationLocked(false)
             setDesiredBarcodeFormats(IntentIntegrator.QR_CODE)
             setPrompt(getString(R.string.scan_prompt))
             setBeepEnabled(true)
@@ -122,9 +141,10 @@ class MainActivity : AppCompatActivity() {
                     load(cached)
                 } else if (!contents.isNullOrBlank()) {
                     Toast.makeText(this, R.string.invalid_qr, Toast.LENGTH_SHORT).show()
-                    connect()
+                    showGuide(R.string.status_not_found)
                 } else {
-                    finish()
+                    // 用户主动取消扫码：回到引导页，不再直接退出应用
+                    showGuide(R.string.status_not_found)
                 }
             }
             return
