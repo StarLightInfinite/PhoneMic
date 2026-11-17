@@ -1877,6 +1877,14 @@ class Dashboard(QMainWindow):
         if self._secure_channel:
             url = self._secure_channel.append_to_url(url)
         return url
+
+    def get_entry_url(self) -> str:
+        """当前入口 URL（与二维码完全一致），供局域网发现服务使用。
+
+        安卓壳 APP 经 UDP 发现拿到本值后直接 WebView 加载，认证路径与扫码
+        完全相同（fragment 里的 PC 公钥 / secret 路径都带上了），不另起一套。
+        """
+        return self._get_qr_url()
     def _set_ip_text(self, text: str) -> None:
         """更新地址栏文本，并同步「复制链接」是否可用。
 

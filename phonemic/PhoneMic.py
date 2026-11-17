@@ -31,6 +31,7 @@ from phonemic.gui.mouse import perform_mouse, set_stats_hook
 from phonemic.gui.mouse_debug import MouseDebugWindow
 from phonemic.gui.tray import SystemTray
 from phonemic.server.api import start_server, stop_server, restart_server, set_secure_channel, get_secret_path, request_client_rescan, resolve_approval
+from phonemic.server.discovery import DiscoveryService
 from phonemic.tunnel.e2ee import SecureChannel
 from phonemic.tunnel.manager import TunnelManager
 from phonemic.tunnel.mode import TunnelMode, set_mode, get_mode, effective_auth_method
@@ -459,9 +460,15 @@ def main():
     else:
         bridge.event_signal.connect(on_backend_event)
 
+    # 安卓壳 APP 的局域网入口发现。provider 现读 Dashboard 的入口 URL，
+    # 与二维码同源：点「刷新」、换端口、切模式后都自动跟上，无需重启服务。
+    discovery = DiscoveryService(lambda: dashboard.get_entry_url())
+    discovery.start()
+
     # 8. 退出清理
     def on_quit():
         logger.info("Shutting down...")
+        discovery.stop()
         tunnel_mgr.stop()
         stop_server()
 

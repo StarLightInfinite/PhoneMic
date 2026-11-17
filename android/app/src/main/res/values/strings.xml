@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PhoneMic</string>
+    <string name="status_discovering">正在查找电脑…</string>
+    <string name="status_loading">正在打开 PhoneMic…</string>
+    <string name="scan_prompt">请扫描电脑主界面上的二维码</string>
+    <string name="invalid_qr">二维码不是有效的 PhoneMic 地址</string>
+    <string name="choose_file">选择文件</string>
+    <string name="menu_rescan">重新扫码连接</string>
+    <string name="menu_exit">退出</string>
+    <string name="menu_title">PhoneMic</string>
+    <string name="discovery_permission_hint">允许局域网发现后，点开图标即可自动连接电脑</string>
+</resources>

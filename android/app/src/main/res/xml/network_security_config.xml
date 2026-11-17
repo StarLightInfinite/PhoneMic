@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- LAN 模式入口是 http://192.168.x.x:端口，Android 9+ 默认禁止明文流量。
+         这里全局放行 cleartext；E2EE 在 HTTP 之上独立加密，明文传输的只有密文。 -->
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

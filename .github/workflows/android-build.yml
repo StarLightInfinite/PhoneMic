@@ -1,0 +1,53 @@
+name: android-build
+
+# 安卓壳 APK 在云端构建：本机不需要 Android SDK。
+# 触发方式：
+#   - 手动：Actions 页选 android-build → Run workflow
+#   - 打 v* tag：随 Release 流程出包
+#   - PR 改到 android/：验证 Gradle 工程仍可编译（不产包也跑）
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+  pull_request:
+    paths:
+      - 'android/**'
+      - '.github/workflows/android-build.yml'
+
+jobs:
+  build:
+    name: Build Android shell (JDK 17 / Gradle 8.7)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      # AGP 8.5.2 需要 Gradle 8.7+；用 setup-gradle 拉版本，仓库里无需
+      # 提交体积大且易腐坏的 gradle-wrapper.jar。
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      # assembleDebug 用 Gradle 自带调试密钥签名，可直接装机；
+      # 不引入仓库内 keystore（公开仓库放签名密钥没有意义）。
+      - name: Build debug APK
+        working-directory: android
+        run: gradle assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: PhoneMic-Android
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 90

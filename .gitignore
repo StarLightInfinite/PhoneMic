@@ -234,3 +234,9 @@ nuitka-crash-report.xml
 *.bak
 *.bak-*
 *.bak_*
+
+# Android 壳工程构建产物（源码在 android/ 内正常入库）
+/android/.gradle/
+/android/local.properties
+/android/.idea/
+/android/app/build/

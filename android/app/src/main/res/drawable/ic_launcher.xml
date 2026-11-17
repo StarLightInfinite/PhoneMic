@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 极简矢量图标，避免二进制资源；只用绝对坐标命令，降低 aapt2 解析风险 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="#2E6BE6"
+        android:pathData="M24,4C13,4 4,13 4,24C4,35 13,44 24,44C35,44 44,35 44,24C44,13 35,4 24,4Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M24,14C21.2,14 19,16.2 19,19L19,27C19,29.8 21.2,32 24,32C26.8,32 29,29.8 29,27L29,19C29,16.2 26.8,14 24,14Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M16,26L16,27C16,32 19.7,36 24.5,36C29.3,36 33,32 33,27L33,26L30,26L30,27C30,30.3 27.8,33 24.5,33C21.2,33 19,30.3 19,27L19,26L16,26Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M23,36L26,36L26,41L23,41L23,36Z" />
+</vector>
