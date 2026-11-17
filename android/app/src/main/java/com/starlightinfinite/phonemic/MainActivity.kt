@@ -63,7 +63,9 @@ class MainActivity : AppCompatActivity() {
                 val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
                     type = "*/*"
                     addCategory(Intent.CATEGORY_OPENABLE)
-                    if (params?.isMultiple == true) {
+                    // 用 mode 判断而非 isMultiple 属性：后者在部分 Kotlin/AGP 组合下
+                    // 解析不到 Java 的 isMultiple()，会导致 compileDebugKotlin 失败。
+                    if (params?.mode == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE) {
                         putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
                     }
                 }
